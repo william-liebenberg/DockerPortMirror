@@ -47,6 +47,18 @@ public sealed class MirrorCommandTests
             commandLine!.ToConfiguration().ToDictionary());
     }
 
+    [Fact]
+    public async Task No_dashboard_is_parsed()
+    {
+        var (exitCode, commandLine, _, _) = await InvokeAsync("--no-dashboard");
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new MirrorCommandLine(NoDashboard: true), commandLine);
+        Assert.Equal(
+            new Dictionary<string, string?> { ["NoDashboard"] = "True" },
+            commandLine!.ToConfiguration().ToDictionary());
+    }
+
     [Theory]
     [InlineData("--poll", "0")]
     [InlineData("--poll", "abc")]
@@ -69,7 +81,7 @@ public sealed class MirrorCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Null(commandLine);
-        foreach (var option in new[] { "--context", "--ssh-target", "--bind", "--poll", "--verbose", "--config", "--version" })
+        foreach (var option in new[] { "--context", "--ssh-target", "--bind", "--poll", "--verbose", "--no-dashboard", "--config", "--version" })
             Assert.Contains(option, output, StringComparison.Ordinal);
     }
 }

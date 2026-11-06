@@ -20,6 +20,10 @@ Changes since the original single-file version of the tool.
 - Ports published on a range (`8000-8001->8000-8001/tcp`) are mirrored.
 - A port that cannot be mirrored is retried with exponential backoff (1s to 60s) and reported once
   instead of every poll.
+- A live dashboard in the terminal (Spectre.Console): connection and Docker status, mirrored ports grouped by
+  container with their status and retry countdown, and a log panel. `--no-dashboard` (`NoDashboard`,
+  `DOCKERPORTMIRROR_NODASHBOARD`) keeps the line-by-line output, which is also used when the output is redirected.
+- The `+`, `-` and `!` lines show the container that publishes the port.
 
 ### Changed
 

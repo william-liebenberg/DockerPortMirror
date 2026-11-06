@@ -7,7 +7,8 @@ internal sealed record MirrorCommandLine(
     string? BindAddress = null,
     int? PollSeconds = null,
     bool Verbose = false,
-    FileInfo? ConfigFile = null)
+    FileInfo? ConfigFile = null,
+    bool NoDashboard = false)
 {
     /// <summary>The given options as configuration keys of <see cref="MirrorOptions"/>.</summary>
     public IEnumerable<KeyValuePair<string, string?>> ToConfiguration()
@@ -22,5 +23,7 @@ internal sealed record MirrorCommandLine(
             yield return new(nameof(MirrorOptions.PollSeconds), poll.ToString(System.Globalization.CultureInfo.InvariantCulture));
         if (Verbose)
             yield return new(nameof(MirrorOptions.Verbose), bool.TrueString);
+        if (NoDashboard)
+            yield return new(nameof(MirrorOptions.NoDashboard), bool.TrueString);
     }
 }

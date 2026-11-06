@@ -13,11 +13,12 @@ public sealed class TunnelReconcilerTests : IAsyncDisposable
     private readonly FakeTunnelFactory _factory = new();
     private readonly ManualTimeProvider _time = new();
     private readonly RecordingLogger<TunnelReconciler> _logger = new();
+    private readonly MirrorStatus _status = new();
     private readonly TunnelReconciler _reconciler;
 
     public TunnelReconcilerTests()
     {
-        _reconciler = new TunnelReconciler(_factory, _time, Options.Create(new MirrorOptions()), _logger);
+        _reconciler = new TunnelReconciler(_factory, _time, Options.Create(new MirrorOptions()), _status, _logger);
     }
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -152,5 +153,61 @@ public sealed class TunnelReconcilerTests : IAsyncDisposable
 
         Assert.All(_factory.Opened, tunnel => Assert.True(tunnel.IsDisposed));
         Assert.Empty(_reconciler.OpenTunnels);
+    }
+
+    [Fact]
+    public async Task Status_lists_open_and_retrying_ports_in_order()
+    {
+        _factory.Failures[3000] = "bind: Address already in use";
+
+        await _reconciler.ReconcileAsync(Ports(8080, 3000), Token);
+
+        Assert.Equal(
+            [
+                new PortStatus(3000, "", "127.0.0.1:3000", "", PortState.Retrying, "bind: Address already in use", _time.GetUtcNow() + TimeSpan.FromSeconds(1)),
+                new PortStatus(8080, "", "127.0.0.1:8080", "fakehost", PortState.Open, null, null),
+            ],
+            _status.Snapshot().Ports);
+    }
+
+    [Fact]
+    public async Task Status_and_log_lines_carry_the_container_names()
+    {
+        _factory.Failures[3000] = "in use";
+        HashSet<PublishedPort> ports =
+        [
+            new(IPAddress.Any, 5432, "postgres"),
+            new(IPAddress.IPv6Any, 5432, "postgres"),
+            new(IPAddress.Any, 3000, "api"),
+            new(IPAddress.Any, 9000, "b"),
+            new(IPAddress.Parse("127.0.0.1"), 9000, "a"),
+        ];
+
+        await _reconciler.ReconcileAsync(ports, Token);
+        Assert.Equal(["api", "postgres", "a, b"], _status.Snapshot().Ports.Select(port => port.Container));
+        await _reconciler.ReconcileAsync(new HashSet<PublishedPort>(), Token);
+
+        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelOpenedId && record.Message.EndsWith("127.0.0.1:5432 (postgres)", StringComparison.Ordinal));
+        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelFailedId && record.Message.StartsWith(" ! localhost:3000 (api) failed: in use", StringComparison.Ordinal));
+        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelClosedId && record.Message == " - localhost:5432 (postgres)");
+    }
+
+    [Fact]
+    public async Task Unknown_container_adds_nothing_to_log_lines()
+    {
+        await _reconciler.ReconcileAsync(Ports(8080), Token);
+
+        Assert.Contains(_logger.Records, record => record.Message == " + localhost:8080 -> fakehost -> 127.0.0.1:8080");
+    }
+
+    [Fact]
+    public async Task Status_is_empty_after_dispose()
+    {
+        await _reconciler.ReconcileAsync(Ports(8080), Token);
+        Assert.Single(_status.Snapshot().Ports);
+
+        await _reconciler.DisposeAsync();
+
+        Assert.Empty(_status.Snapshot().Ports);
     }
 }

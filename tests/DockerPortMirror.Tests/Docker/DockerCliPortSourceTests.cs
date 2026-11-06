@@ -17,12 +17,14 @@ public sealed class DockerCliPortSourceTests
         var runner = new FakeProcessRunner()
             .On("docker context inspect mac", 0, MacContext)
             .On("ssh -G macdocker", 0)
-            .On("docker --context mac ps --format {{.Ports}}", 0, "0.0.0.0:8080->80/tcp\n");
+            .On("docker --context mac ps --format {{.Names}}\t{{.Ports}}", 0, "web\t0.0.0.0:8080->80/tcp\n");
         var source = new DockerCliPortSource(new DockerContextResolver(runner, Options.Create(new MirrorOptions { Context = "mac" })), runner);
 
         var ports = await source.GetPublishedPortsAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal([new PublishedPort(IPAddress.Any, 8080)], ports);
+        var port = Assert.Single(ports);
+        Assert.Equal(new PublishedPort(IPAddress.Any, 8080, "web"), port);
+        Assert.Equal("web", port.Container);
     }
 
     [Fact]
@@ -31,7 +33,7 @@ public sealed class DockerCliPortSourceTests
         var runner = new FakeProcessRunner()
             .On("docker context inspect mac", 0, MacContext)
             .On("ssh -G macdocker", 0)
-            .On("docker --context mac ps --format {{.Ports}}", 1, "", "Cannot connect to the Docker daemon");
+            .On("docker --context mac ps --format {{.Names}}\t{{.Ports}}", 1, "", "Cannot connect to the Docker daemon");
         var source = new DockerCliPortSource(new DockerContextResolver(runner, Options.Create(new MirrorOptions { Context = "mac" })), runner);
 
         var error = await Assert.ThrowsAsync<DockerPortMirrorException>(() => source.GetPublishedPortsAsync(TestContext.Current.CancellationToken));

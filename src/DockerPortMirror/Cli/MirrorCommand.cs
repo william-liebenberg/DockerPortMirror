@@ -50,6 +50,10 @@ internal static class MirrorCommand
         {
             Description = "Show SSH and Docker diagnostics, and stack traces of unexpected errors.",
         };
+        var noDashboard = new Option<bool>("--no-dashboard")
+        {
+            Description = "Print one line per event instead of the live dashboard. Automatic when output is redirected.",
+        };
         var config = new Option<FileInfo>("--config")
         {
             Description = "Configuration file (JSON). Default: config.json in the user configuration folder, when it exists.",
@@ -66,6 +70,7 @@ internal static class MirrorCommand
             bind,
             poll,
             verbose,
+            noDashboard,
             config,
         };
 
@@ -76,7 +81,8 @@ internal static class MirrorCommand
                 parseResult.GetValue(bind),
                 parseResult.GetValue(poll),
                 parseResult.GetValue(verbose),
-                parseResult.GetValue(config)),
+                parseResult.GetValue(config),
+                parseResult.GetValue(noDashboard)),
             cancellationToken));
 
         return root;

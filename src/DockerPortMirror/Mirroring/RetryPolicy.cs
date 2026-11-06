@@ -21,6 +21,21 @@ internal sealed class RetryPolicy
     public bool IsDue(TunnelSpec spec) =>
         !_entries.TryGetValue(spec, out var entry) || _timeProvider.GetUtcNow() >= entry.NextAttempt;
 
+    /// <summary>Reads the reason of the last failure and the time of the next attempt of a tunnel in backoff.</summary>
+    public bool TryGetPending(TunnelSpec spec, out string reason, out DateTimeOffset nextAttempt)
+    {
+        if (_entries.TryGetValue(spec, out var entry))
+        {
+            reason = entry.LastReason;
+            nextAttempt = entry.NextAttempt;
+            return true;
+        }
+
+        reason = "";
+        nextAttempt = default;
+        return false;
+    }
+
     /// <summary>Records a failure and returns how long to wait and whether it is worth reporting.</summary>
     public RetryDecision Fail(TunnelSpec spec, string reason)
     {

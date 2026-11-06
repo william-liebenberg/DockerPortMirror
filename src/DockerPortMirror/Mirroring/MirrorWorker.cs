@@ -13,6 +13,7 @@ internal sealed class MirrorWorker : BackgroundService
     private readonly DockerContextResolver _resolver;
     private readonly IPublishedPortSource _source;
     private readonly TunnelReconciler _reconciler;
+    private readonly MirrorStatus _status;
     private readonly MirrorOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly IHostApplicationLifetime _lifetime;
@@ -23,6 +24,7 @@ internal sealed class MirrorWorker : BackgroundService
         DockerContextResolver resolver,
         IPublishedPortSource source,
         TunnelReconciler reconciler,
+        MirrorStatus status,
         IOptions<MirrorOptions> options,
         TimeProvider timeProvider,
         IHostApplicationLifetime lifetime,
@@ -31,6 +33,7 @@ internal sealed class MirrorWorker : BackgroundService
         _resolver = resolver;
         _source = source;
         _reconciler = reconciler;
+        _status = status;
         _options = options.Value;
         _timeProvider = timeProvider;
         _lifetime = lifetime;
@@ -47,6 +50,7 @@ internal sealed class MirrorWorker : BackgroundService
         try
         {
             var endpoint = await _resolver.ResolveAsync(stoppingToken).ConfigureAwait(false);
+            _status.SetEndpoint(endpoint);
             WriteBanner(endpoint);
 
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(_options.PollSeconds), _timeProvider);
@@ -86,6 +90,7 @@ internal sealed class MirrorWorker : BackgroundService
         try
         {
             var ports = await _source.GetPublishedPortsAsync(cancellationToken).ConfigureAwait(false);
+            _status.SetDockerError(null);
             await _reconciler.ReconcileAsync(ports, cancellationToken).ConfigureAwait(false);
             if (_lastPollError is not null)
                 Log.PollRecovered(_logger);
@@ -99,6 +104,7 @@ internal sealed class MirrorWorker : BackgroundService
             else
                 Log.PollStillFailing(_logger, ex.Message);
             _lastPollError = ex.Message;
+            _status.SetDockerError(ex.Message);
         }
     }
 

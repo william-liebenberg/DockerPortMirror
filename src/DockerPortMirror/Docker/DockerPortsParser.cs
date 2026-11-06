@@ -13,14 +13,29 @@ internal static partial class DockerPortsParser
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PublishedPortEntry();
 
-    private static readonly char[] Separators = [',', ' ', '\t', '\r', '\n'];
+    private static readonly char[] Separators = [',', ' ', '\t', '\r'];
 
-    /// <summary>Parses the output of <c>docker ps --format {{.Ports}}</c> into published TCP ports.</summary>
+    /// <summary>
+    /// Parses the output of <c>docker ps --format "{{.Names}}\t{{.Ports}}"</c> into published TCP ports, one
+    /// container per line. A line without a tab is read as ports only, with an empty container name.
+    /// </summary>
     public static IReadOnlySet<PublishedPort> Parse(string output)
     {
         ArgumentNullException.ThrowIfNull(output);
         var ports = new HashSet<PublishedPort>();
-        foreach (var entry in output.Split(Separators, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in output.Split('\n'))
+        {
+            var tab = line.IndexOf('\t', StringComparison.Ordinal);
+            var container = tab >= 0 ? line[..tab].Trim() : "";
+            ParseLine(tab >= 0 ? line[(tab + 1)..] : line, container, ports);
+        }
+
+        return ports;
+    }
+
+    private static void ParseLine(string entries, string container, HashSet<PublishedPort> ports)
+    {
+        foreach (var entry in entries.Split(Separators, StringSplitOptions.RemoveEmptyEntries))
         {
             var match = PublishedPortEntry().Match(entry);
             if (!match.Success || !match.Groups["protocol"].Value.Equals("tcp", StringComparison.OrdinalIgnoreCase))
@@ -37,10 +52,8 @@ internal static partial class DockerPortsParser
                 continue;
 
             for (var port = start; port <= end; port++)
-                ports.Add(new PublishedPort(hostIp, port));
+                ports.Add(new PublishedPort(hostIp, port, container));
         }
-
-        return ports;
     }
 
     private static bool TryParseHost(string host, out IPAddress address)
