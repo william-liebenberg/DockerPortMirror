@@ -53,6 +53,21 @@ public sealed class RetryPolicyTests
     }
 
     [Fact]
+    public void Pending_failure_gives_its_reason_and_next_attempt()
+    {
+        var time = new ManualTimeProvider();
+        var policy = new RetryPolicy(time);
+
+        Assert.False(policy.TryGetPending(Spec, out _, out _));
+        policy.Fail(Spec, "in use");
+        policy.Fail(Spec, "refused");
+
+        Assert.True(policy.TryGetPending(Spec, out var reason, out var nextAttempt));
+        Assert.Equal("refused", reason);
+        Assert.Equal(time.GetUtcNow() + TimeSpan.FromSeconds(2), nextAttempt);
+    }
+
+    [Fact]
     public void Reset_forgets_failures()
     {
         var policy = new RetryPolicy(new ManualTimeProvider());

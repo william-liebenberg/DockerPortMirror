@@ -5,10 +5,13 @@ namespace DockerPortMirror.Docker;
 
 /// <summary>
 /// Reads published ports with one <c>docker ps</c> call per poll. Over an SSH context every Docker CLI call opens
-/// an SSH connection, so this deliberately avoids a second call such as <c>docker inspect</c>.
+/// an SSH connection, so this deliberately avoids a second call such as <c>docker inspect</c>: the same call
+/// returns the container names with their ports.
 /// </summary>
 internal sealed class DockerCliPortSource : IPublishedPortSource
 {
+    internal const string Format = "{{.Names}}\t{{.Ports}}";
+
     private readonly DockerContextResolver _resolver;
     private readonly IProcessRunner _runner;
 
@@ -23,7 +26,7 @@ internal sealed class DockerCliPortSource : IPublishedPortSource
         var endpoint = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
         var result = await _runner.RunAsync(
                 "docker",
-                ["--context", endpoint.Context, "ps", "--format", "{{.Ports}}"],
+                ["--context", endpoint.Context, "ps", "--format", Format],
                 DockerContextResolver.CommandTimeout,
                 cancellationToken)
             .ConfigureAwait(false);

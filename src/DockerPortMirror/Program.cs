@@ -1,11 +1,13 @@
 using DockerPortMirror;
 using DockerPortMirror.Cli;
+using DockerPortMirror.Dashboard;
 using DockerPortMirror.Diagnostics;
 using DockerPortMirror.Mirroring;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Spectre.Console;
 
 // Composition root: parse the command line, then run the mirror in the Generic Host.
 return await MirrorCommand.Create(RunAsync).Parse(args).InvokeAsync(MirrorCommand.InvocationConfiguration);
@@ -20,7 +22,22 @@ static async Task<int> RunAsync(MirrorCommandLine commandLine, CancellationToken
             ContentRootPath = AppContext.BaseDirectory,
         });
         builder.Configuration.AddMirrorConfiguration(commandLine);
-        builder.Logging.AddMirrorConsole(builder.Configuration.GetValue<bool>(nameof(MirrorOptions.Verbose)));
+        var verbose = builder.Configuration.GetValue<bool>(nameof(MirrorOptions.Verbose));
+        var useDashboard = !builder.Configuration.GetValue<bool>(nameof(MirrorOptions.NoDashboard))
+            && !Console.IsOutputRedirected
+            && AnsiConsole.Profile.Capabilities.Interactive;
+        if (useDashboard)
+        {
+            // Registered before the mirror, so the host stops it last and its final frame shows the shutdown.
+            var dashboardLog = new DashboardLog(TimeProvider.System);
+            builder.Logging.AddMirrorDashboard(dashboardLog, verbose);
+            builder.Services.AddMirrorDashboard(dashboardLog);
+        }
+        else
+        {
+            builder.Logging.AddMirrorConsole(verbose);
+        }
+
         builder.Services.AddDockerPortMirror(builder.Configuration);
         builder.Services.Configure<ConsoleLifetimeOptions>(options => options.SuppressStatusMessages = true);
         builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(10));

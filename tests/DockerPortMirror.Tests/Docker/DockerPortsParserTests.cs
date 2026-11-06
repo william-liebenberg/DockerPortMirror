@@ -6,7 +6,7 @@ namespace DockerPortMirror.Tests.Docker;
 
 public sealed class DockerPortsParserTests
 {
-    private static PublishedPort Port(string ip, int port) => new(IPAddress.Parse(ip), port);
+    private static PublishedPort Port(string ip, int port, string container = "") => new(IPAddress.Parse(ip), port, container);
 
     [Fact]
     public void Empty_output_has_no_ports()
@@ -80,5 +80,38 @@ public sealed class DockerPortsParserTests
         var ports = DockerPortsParser.Parse("0.0.0.0:8080->80/tcp\r\n127.0.0.1:3000->3000/tcp, 53/udp\n\n");
 
         Assert.Equal([Port("0.0.0.0", 8080), Port("127.0.0.1", 3000)], ports);
+    }
+
+    [Fact]
+    public void Container_name_comes_before_the_tab()
+    {
+        Assert.Equal([Port("0.0.0.0", 5432, "postgres")], DockerPortsParser.Parse("postgres\t0.0.0.0:5432->5432/tcp\n"));
+    }
+
+    [Fact]
+    public void Every_port_of_a_container_gets_its_name()
+    {
+        var ports = DockerPortsParser.Parse(
+            "postgres\t0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp\r\n" +
+            "web\t0.0.0.0:8080->80/tcp, 0.0.0.0:8443->443/tcp\n" +
+            "worker\t\n");
+
+        Assert.Equal(
+            [Port("0.0.0.0", 5432, "postgres"), Port("::", 5432, "postgres"), Port("0.0.0.0", 8080, "web"), Port("0.0.0.0", 8443, "web")],
+            ports);
+    }
+
+    [Fact]
+    public void Line_without_a_tab_has_no_container_name()
+    {
+        var port = Assert.Single(DockerPortsParser.Parse("0.0.0.0:8080->80/tcp\n"));
+
+        Assert.Equal("", port.Container);
+    }
+
+    [Fact]
+    public void Port_range_of_a_container_gets_its_name()
+    {
+        Assert.All(DockerPortsParser.Parse("api\t0.0.0.0:8000-8001->8000-8001/tcp"), port => Assert.Equal("api", port.Container));
     }
 }

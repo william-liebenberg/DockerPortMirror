@@ -23,4 +23,7 @@ public sealed class MirrorOptions
     public int PollSeconds { get; set; } = DefaultPollSeconds;
 
     public bool Verbose { get; set; }
+
+    /// <summary>Print one line per event instead of the live dashboard (always the case when output is redirected).</summary>
+    public bool NoDashboard { get; set; }
 }

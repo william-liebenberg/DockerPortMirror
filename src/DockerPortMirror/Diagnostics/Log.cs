@@ -28,17 +28,44 @@ internal static partial class Log
     [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "Stopping tunnels...")]
     public static partial void Stopping(ILogger logger);
 
-    [LoggerMessage(EventId = TunnelOpenedId, Level = LogLevel.Information, Message = " + localhost:{LocalPort} -> {Via} -> {RemoteHost}:{RemotePort}")]
-    public static partial void TunnelOpened(ILogger logger, int localPort, string via, string remoteHost, int remotePort);
+    // The container name follows the port as " (name)", or nothing when it is unknown.
+    public static void TunnelOpened(ILogger logger, int localPort, string container, string via, string remoteHost, int remotePort)
+    {
+        var owner = Owner(container);
+        TunnelOpenedCore(logger, localPort, via, remoteHost, remotePort, owner);
+    }
 
-    [LoggerMessage(EventId = TunnelClosedId, Level = LogLevel.Information, Message = " - localhost:{LocalPort}")]
-    public static partial void TunnelClosed(ILogger logger, int localPort);
+    public static void TunnelClosed(ILogger logger, int localPort, string container)
+    {
+        var owner = Owner(container);
+        TunnelClosedCore(logger, localPort, owner);
+    }
 
-    [LoggerMessage(EventId = TunnelFailedId, Level = LogLevel.Warning, Message = " ! localhost:{LocalPort} failed: {Reason} (retry in {RetrySeconds}s)")]
-    public static partial void TunnelFailed(ILogger logger, int localPort, string reason, int retrySeconds);
+    public static void TunnelFailed(ILogger logger, int localPort, string container, string reason, int retrySeconds)
+    {
+        var owner = Owner(container);
+        TunnelFailedCore(logger, localPort, owner, reason, retrySeconds);
+    }
 
-    [LoggerMessage(EventId = 103, Level = LogLevel.Debug, Message = "localhost:{LocalPort} failed again ({Failures} times): {Reason} (retry in {RetrySeconds}s)")]
-    public static partial void TunnelStillFailing(ILogger logger, int localPort, int failures, string reason, int retrySeconds);
+    public static void TunnelStillFailing(ILogger logger, int localPort, string container, int failures, string reason, int retrySeconds)
+    {
+        var owner = Owner(container);
+        TunnelStillFailingCore(logger, localPort, owner, failures, reason, retrySeconds);
+    }
+
+    [LoggerMessage(EventId = TunnelOpenedId, Level = LogLevel.Information, Message = " + localhost:{LocalPort} -> {Via} -> {RemoteHost}:{RemotePort}{Owner}")]
+    private static partial void TunnelOpenedCore(ILogger logger, int localPort, string via, string remoteHost, int remotePort, string owner);
+
+    [LoggerMessage(EventId = TunnelClosedId, Level = LogLevel.Information, Message = " - localhost:{LocalPort}{Owner}")]
+    private static partial void TunnelClosedCore(ILogger logger, int localPort, string owner);
+
+    [LoggerMessage(EventId = TunnelFailedId, Level = LogLevel.Warning, Message = " ! localhost:{LocalPort}{Owner} failed: {Reason} (retry in {RetrySeconds}s)")]
+    private static partial void TunnelFailedCore(ILogger logger, int localPort, string owner, string reason, int retrySeconds);
+
+    [LoggerMessage(EventId = 103, Level = LogLevel.Debug, Message = "localhost:{LocalPort}{Owner} failed again ({Failures} times): {Reason} (retry in {RetrySeconds}s)")]
+    private static partial void TunnelStillFailingCore(ILogger logger, int localPort, string owner, int failures, string reason, int retrySeconds);
+
+    private static string Owner(string container) => string.IsNullOrEmpty(container) ? "" : $" ({container})";
 
     [LoggerMessage(EventId = 104, Level = LogLevel.Debug, Message = "ssh[{LocalPort}]: {Line}")]
     public static partial void SshOutput(ILogger logger, int localPort, string line);

@@ -24,6 +24,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IPublishedPortSource, DockerCliPortSource>();
         services.AddSingleton<ITunnelFactory, OpenSshTunnelFactory>();
 
+        services.AddSingleton<MirrorStatus>();
         services.AddSingleton<TunnelReconciler>();
         services.AddSingleton<MirrorWorker>();
         services.AddHostedService(provider => provider.GetRequiredService<MirrorWorker>());

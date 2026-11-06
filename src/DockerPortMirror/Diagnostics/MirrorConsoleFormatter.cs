@@ -82,12 +82,7 @@ internal static class MirrorConsoleLoggingExtensions
     public static ILoggingBuilder AddMirrorConsole(this ILoggingBuilder logging, bool verbose)
     {
         logging.ClearProviders();
-        logging.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
-        logging.AddFilter("Microsoft", verbose ? LogLevel.Information : LogLevel.Warning);
-        logging.AddFilter("System", LogLevel.Warning);
-
-        // The host reports start-up failures that the tool reports itself, with a clearer message.
-        logging.AddFilter("Microsoft.Extensions.Hosting", verbose ? LogLevel.Information : LogLevel.Critical);
+        logging.AddMirrorFilters(verbose);
         logging.AddConsole(options =>
         {
             options.FormatterName = MirrorConsoleFormatter.FormatterName;
@@ -99,6 +94,18 @@ internal static class MirrorConsoleLoggingExtensions
             options.UseColors = !Console.IsOutputRedirected
                 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
         });
+        return logging;
+    }
+
+    /// <summary>The levels the tool shows, whatever the output: <paramref name="verbose"/> adds diagnostics.</summary>
+    public static ILoggingBuilder AddMirrorFilters(this ILoggingBuilder logging, bool verbose)
+    {
+        logging.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
+        logging.AddFilter("Microsoft", verbose ? LogLevel.Information : LogLevel.Warning);
+        logging.AddFilter("System", LogLevel.Warning);
+
+        // The host reports start-up failures that the tool reports itself, with a clearer message.
+        logging.AddFilter("Microsoft.Extensions.Hosting", verbose ? LogLevel.Information : LogLevel.Critical);
         return logging;
     }
 }

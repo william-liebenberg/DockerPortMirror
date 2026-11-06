@@ -32,24 +32,30 @@ flowchart LR
   Source -.implemented by.- DockerCli[DockerCliPortSource]
   Factory -.implemented by.- OpenSsh[OpenSshTunnelFactory]
   DockerCli --> Runner[IProcessRunner]
+  Worker --> Status[MirrorStatus]
+  Reconciler --> Status
+  Host --> Dashboard[DashboardService<br/>Spectre.Console]
+  Dashboard -.reads snapshots.-> Status
 ```
 
 | Folder | Contents |
 | --- | --- |
 | `src/DockerPortMirror/Program.cs` | Composition root: parses the command line and runs the Generic Host. |
 | `Cli/` | Command-line options (`MirrorCommand`), `MirrorOptions`, their validation and configuration sources. |
-| `Mirroring/` | The core: `PublishedPort`, `TunnelSpec`, the `IPublishedPortSource`/`ITunnelFactory`/`ITunnel` contracts, `PortSetDiff`, `RetryPolicy`, `TunnelReconciler` and the `MirrorWorker` polling loop. |
+| `Mirroring/` | The core: `PublishedPort`, `TunnelSpec`, the `IPublishedPortSource`/`ITunnelFactory`/`ITunnel` contracts, `PortSetDiff`, `RetryPolicy`, `TunnelReconciler`, the `MirrorWorker` polling loop and `MirrorStatus`, the live state the dashboard shows. |
 | `Docker/` | Resolving the Docker context (`DockerContextResolver`), parsing `docker ps` output and the `DockerCliPortSource`. |
 | `Ssh/` | `SshTarget`, the `ssh` argument builder and the OpenSSH tunnel. |
 | `Processes/` | Running short commands with a timeout (`ProcessRunner`) and tying child processes to the tool (Windows Job Object). |
 | `Diagnostics/` | Every log message (`Log.cs`, source-generated) and the console formatter. |
+| `Dashboard/` | The live Spectre.Console dashboard: `DashboardView` (a pure render of a status snapshot and log lines), `DashboardService` (the live display), and the logger that feeds its log panel. |
 | `tests/DockerPortMirror.Tests/` | xUnit tests with hand-written fakes in `Fakes/`. |
 
 Conventions:
 
 - User-facing failures (Docker missing, bad context, port in use) throw `DockerPortMirrorException` with a message
   that tells the user what to do. Anything else is a bug and is reported with a stack trace under `--verbose`.
-- Every message goes through `Diagnostics/Log.cs`; do not write to `Console` outside `Program.cs`.
+- Every message goes through `Diagnostics/Log.cs`; do not write to `Console` or `AnsiConsole` outside `Program.cs`
+  and `Dashboard/`. The core writes its state to `MirrorStatus` and knows nothing about Spectre.Console.
 - Parsing and decisions are pure functions with tests; process and console code stays thin.
 
 ### Adding a port source

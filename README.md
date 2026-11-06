@@ -52,21 +52,50 @@ docker context use remote
 dockerportmirror
 ```
 
+In a terminal it shows a live dashboard: the connection, every mirrored port with its container and status, and
+the latest messages.
+
+```text
+╭─DockerPortMirror 1.2.0───────────────────────────────────────────────────────────────────╮
+│ Context  remote (ssh://me@dockerhost)    SSH  me@dockerhost                              │
+│ Bind  127.0.0.1    Poll  2s    Docker  ● reachable    Ctrl+C to stop                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+╭─Mirrored ports (4)───────────────────────────────────────────────────────────────────────╮
+│ Container  Local           Remote          Status                                        │
+│ api        localhost:3000  127.0.0.1:3000  ✗ retry in 4s: bind [127.0.0.1]:3000: Addres… │
+│ postgres   localhost:5432  127.0.0.1:5432  ● open                                        │
+│ web        localhost:8080  127.0.0.1:8080  ● open                                        │
+│            localhost:8443  127.0.0.1:8443  ● open                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+╭─Log──────────────────────────────────────────────────────────────────────────────────────╮
+│ 10:41:02  + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres)                 │
+│ 10:41:02  + localhost:8080 -> me@dockerhost -> 127.0.0.1:8080 (web)                      │
+│ 10:41:02  + localhost:8443 -> me@dockerhost -> 127.0.0.1:8443 (web)                      │
+│ 10:41:03  ! localhost:3000 (api) failed: bind [127.0.0.1]:3000: Address already in use … │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+Ports are grouped by container. A port that could not be mirrored is retried with a growing delay
+(1s, 2s, 4s … 60s), and its status counts down to the next attempt. When `docker ps` fails, the Docker status turns
+red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
+screen.
+
+When the output is redirected, or with `--no-dashboard`, it prints one line per event instead:
+
 ```text
 DockerPortMirror 1.2.0
 Docker context : remote  (ssh://me@dockerhost)
 SSH target     : me@dockerhost
 Local bind     : 127.0.0.1   Poll: 2s
 Press Ctrl+C to stop.
- + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432
- + localhost:8080 -> me@dockerhost -> 127.0.0.1:8080
- - localhost:8080
- ! localhost:3000 failed: bind [127.0.0.1]:3000: Address already in use (retry in 1s)
+ + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres)
+ + localhost:8080 -> me@dockerhost -> 127.0.0.1:8080 (web)
+ - localhost:8080 (web)
+ ! localhost:3000 (api) failed: bind [127.0.0.1]:3000: Address already in use (retry in 1s)
 ```
 
 `+` is a new tunnel, `-` a tunnel removed because its container stopped, and `!` a port that could not be mirrored;
-it is retried with a growing delay (1s, 2s, 4s … 60s) and reported again only if the reason changes.
-Press Ctrl+C to stop: every tunnel is closed.
+it is reported again only if the reason changes.
 
 > [!NOTE]
 > The console output is meant for people and may change between versions; do not parse it in scripts.
@@ -83,6 +112,7 @@ Options:
   --bind <address>       Local bind address. Default: 127.0.0.1.
   --poll <seconds>       Docker polling interval in seconds. Default: 2.
   -v, --verbose          Show SSH and Docker diagnostics, and stack traces of unexpected errors.
+  --no-dashboard         Print one line per event instead of the live dashboard. Automatic when output is redirected.
   --config <path>        Configuration file (JSON). Default: config.json in the user configuration folder, when it exists.
   -?, -h, --help         Show help and usage information
   --version              Show version information
@@ -105,6 +135,7 @@ environment variables, which win over the file.
 | Bind address | `BindAddress` | `DOCKERPORTMIRROR_BINDADDRESS` |
 | Poll interval (seconds) | `PollSeconds` | `DOCKERPORTMIRROR_POLLSECONDS` |
 | Verbose output | `Verbose` | `DOCKERPORTMIRROR_VERBOSE` |
+| Plain output instead of the dashboard | `NoDashboard` | `DOCKERPORTMIRROR_NODASHBOARD` |
 
 The file is `--config <path>`, or else, when it exists, `config.json` in the user configuration folder:
 `%APPDATA%\DockerPortMirror\config.json` on Windows, `~/.config/DockerPortMirror/config.json` on Linux and macOS.
@@ -118,8 +149,8 @@ The file is `--config <path>`, or else, when it exists, `config.json` in the use
 
 ## How it works
 
-- Every poll runs `docker --context <context> ps --format {{.Ports}}` and reads the published TCP ports,
-  including port ranges and IPv4/IPv6 bindings.
+- Every poll runs `docker --context <context> ps --format "{{.Names}}\t{{.Ports}}"` and reads the published TCP
+  ports and their container, including port ranges and IPv4/IPv6 bindings.
 - For each port it starts `ssh -N -L <bind>:<port>:<address>:<port> <target>`, where `<address>` is `127.0.0.1`
   when Docker publishes on all interfaces, or the specific address the container is published on.
 - Tunnels are closed when their port disappears, and restarted when SSH exits.
