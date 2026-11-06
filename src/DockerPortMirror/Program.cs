@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using DockerPortMirror;
 using DockerPortMirror.Docker;
+using DockerPortMirror.Mirroring;
+using DockerPortMirror.Processes;
 using DockerPortMirror.Ssh;
 
 var options = Options.Parse(args);
@@ -88,7 +91,7 @@ internal sealed record Options(
         string? context = null;
         string? sshTarget = null;
         var bindAddress = "127.0.0.1";
-        var pollSeconds = 1;
+        var pollSeconds = 2;
         var verbose = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -156,7 +159,7 @@ internal sealed record Options(
     }
 }
 
-internal sealed record DockerConfiguration(string Context, string Endpoint, string SshTarget);
+internal sealed record DockerConfiguration(string Context, string Endpoint, SshTarget SshTarget);
 
 internal static class DockerDiscovery
 {
@@ -168,50 +171,50 @@ internal static class DockerDiscovery
         var context = contextOverride;
         if (string.IsNullOrWhiteSpace(context))
         {
-            var current = await ProcessRunner.RunAsync("docker", ["context", "show"], token);
-            current.EnsureSuccess("Unable to determine the current Docker context");
+            var current = await Commands.RunAsync("docker", ["context", "show"], token);
+            Commands.EnsureSuccess(current, "Unable to determine the current Docker context");
             context = current.StandardOutput.Trim();
         }
 
         if (string.IsNullOrWhiteSpace(context))
             throw new InvalidOperationException("Docker did not return a current context.");
 
-        var inspect = await ProcessRunner.RunAsync("docker", ["context", "inspect", context], token);
-        inspect.EnsureSuccess($"Unable to inspect Docker context '{context}'");
+        var inspect = await Commands.RunAsync("docker", ["context", "inspect", context], token);
+        Commands.EnsureSuccess(inspect, $"Unable to inspect Docker context '{context}'");
 
         var endpoint = DockerContextResolver.ParseEndpoint(inspect.StandardOutput)
             ?? throw new InvalidOperationException($"Docker context '{context}' has no Docker endpoint.");
 
-        var sshTarget = sshTargetOverride;
-        if (string.IsNullOrWhiteSpace(sshTarget))
-            sshTarget = SshTarget.FromEndpoint(endpoint);
+        var sshTarget = string.IsNullOrWhiteSpace(sshTargetOverride)
+            ? SshTarget.FromEndpoint(endpoint)
+            : new SshTarget(sshTargetOverride);
 
-        if (string.IsNullOrWhiteSpace(sshTarget))
+        if (sshTarget is null)
         {
             throw new InvalidOperationException(
                 $"The selected Docker endpoint is not SSH-based: '{endpoint}'. " +
                 "Select an ssh:// Docker context or pass --ssh-target <alias-or-user@host>.");
         }
 
-        var check = await ProcessRunner.RunAsync(
+        var check = await Commands.RunAsync(
             "ssh",
-            ["-G", sshTarget],
+            ["-G", sshTarget.Value.Destination],
             token);
-        check.EnsureSuccess($"OpenSSH could not resolve SSH target '{sshTarget}'");
+        Commands.EnsureSuccess(check, $"OpenSSH could not resolve SSH target '{sshTarget}'");
 
-        return new(context, endpoint, sshTarget);
+        return new(context, endpoint, sshTarget.Value);
     }
 }
 
 internal static class DockerPorts
 {
-    public static async Task<HashSet<int>> GetPublishedTcpPortsAsync(string context, CancellationToken token)
+    public static async Task<IReadOnlySet<PublishedPort>> GetPublishedTcpPortsAsync(string context, CancellationToken token)
     {
-        var result = await ProcessRunner.RunAsync(
+        var result = await Commands.RunAsync(
             "docker",
             ["--context", context, "ps", "--format", "{{.Ports}}"],
             token);
-        result.EnsureSuccess($"Unable to query Docker context '{context}'");
+        Commands.EnsureSuccess(result, $"Unable to query Docker context '{context}'");
 
         return DockerPortsParser.Parse(result.StandardOutput);
     }
@@ -219,42 +222,44 @@ internal static class DockerPorts
 
 internal sealed class TunnelManager : IDisposable
 {
-    private readonly string _sshTarget;
+    private readonly SshTarget _sshTarget;
     private readonly string _bindAddress;
     private readonly bool _verbose;
-    private readonly Dictionary<int, SshTunnel> _tunnels = new();
+    private readonly Dictionary<TunnelSpec, SshTunnel> _tunnels = new();
 
-    public TunnelManager(string sshTarget, string bindAddress, bool verbose)
+    public TunnelManager(SshTarget sshTarget, string bindAddress, bool verbose)
     {
         _sshTarget = sshTarget;
         _bindAddress = bindAddress;
         _verbose = verbose;
     }
 
-    public async Task SynchroniseAsync(HashSet<int> requiredPorts, CancellationToken token)
+    public async Task SynchroniseAsync(IReadOnlySet<PublishedPort> publishedPorts, CancellationToken token)
     {
+        var required = TunnelSpec.FromPublishedPorts(publishedPorts, _bindAddress);
+
         foreach (var dead in _tunnels.Where(x => x.Value.HasExited).Select(x => x.Key).ToArray())
         {
             var tunnel = _tunnels[dead];
             var error = await tunnel.GetErrorAsync();
             tunnel.Dispose();
             _tunnels.Remove(dead);
-            WriteLine(ConsoleColor.Red, $" ! SSH tunnel for localhost:{dead} exited{FormatError(error)}");
+            WriteLine(ConsoleColor.Red, $" ! SSH tunnel for localhost:{dead.LocalPort} exited{FormatError(error)}");
         }
 
-        foreach (var port in _tunnels.Keys.Except(requiredPorts).ToArray())
+        foreach (var spec in _tunnels.Keys.Except(required).ToArray())
         {
-            WriteLine(ConsoleColor.Yellow, $" - Removing localhost:{port}");
-            _tunnels[port].Dispose();
-            _tunnels.Remove(port);
+            WriteLine(ConsoleColor.Yellow, $" - Removing localhost:{spec.LocalPort}");
+            _tunnels[spec].Dispose();
+            _tunnels.Remove(spec);
         }
 
-        foreach (var port in requiredPorts.Except(_tunnels.Keys).Order().ToArray())
+        foreach (var spec in required.Except(_tunnels.Keys).OrderBy(x => x.LocalPort).ToArray())
         {
             token.ThrowIfCancellationRequested();
-            var tunnel = await SshTunnel.StartAsync(_sshTarget, _bindAddress, port, _verbose, token);
-            _tunnels.Add(port, tunnel);
-            WriteLine(ConsoleColor.Green, $" + localhost:{port} -> SSH {_sshTarget} -> Mac localhost:{port}");
+            var tunnel = await SshTunnel.StartAsync(_sshTarget, spec, _verbose, token);
+            _tunnels.Add(spec, tunnel);
+            WriteLine(ConsoleColor.Green, $" + localhost:{spec.LocalPort} -> {_sshTarget} -> {spec.RemoteHost}:{spec.RemotePort}");
         }
     }
 
@@ -292,9 +297,8 @@ internal sealed class SshTunnel : IDisposable
     public bool HasExited => _process.HasExited;
 
     public static async Task<SshTunnel> StartAsync(
-        string sshTarget,
-        string bindAddress,
-        int port,
+        SshTarget sshTarget,
+        TunnelSpec spec,
         bool verbose,
         CancellationToken token)
     {
@@ -316,13 +320,13 @@ internal sealed class SshTunnel : IDisposable
             "-o", "ServerAliveInterval=30",
             "-o", "ServerAliveCountMax=3",
             "-o", "ConnectTimeout=10",
-            "-L", $"{bindAddress}:{port}:127.0.0.1:{port}"
+            "-L", $"{spec.BindAddress}:{spec.LocalPort}:{spec.RemoteHost}:{spec.RemotePort}"
         };
 
         if (verbose)
             arguments.Add("-v");
 
-        arguments.Add(sshTarget);
+        arguments.Add(sshTarget.Destination);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
@@ -334,7 +338,7 @@ internal sealed class SshTunnel : IDisposable
         catch (Exception ex)
         {
             process.Dispose();
-            throw new InvalidOperationException("Unable to start ssh.exe. Ensure the Windows OpenSSH Client is installed and on PATH.", ex);
+            throw new DockerPortMirrorException("Unable to start ssh. Ensure the OpenSSH client is installed and on PATH.", ex);
         }
 
         var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
@@ -345,9 +349,10 @@ internal sealed class SshTunnel : IDisposable
         if (process.HasExited)
         {
             var error = await stderr;
+            var exitCode = process.ExitCode;
             process.Dispose();
-            throw new InvalidOperationException(
-                $"Could not mirror localhost:{port}. SSH exited with code {process.ExitCode}: {error.Trim()}");
+            throw new DockerPortMirrorException(
+                $"Could not mirror localhost:{spec.LocalPort}. SSH exited with code {exitCode}: {error.Trim()}");
         }
 
         return new(process, stderr);
@@ -385,50 +390,17 @@ internal sealed class SshTunnel : IDisposable
     }
 }
 
-internal sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+internal static class Commands
 {
-    public void EnsureSuccess(string message)
+    private static readonly ProcessRunner Runner = new ProcessRunner();
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+
+    public static Task<ProcessResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken token) =>
+        Runner.RunAsync(fileName, arguments, Timeout, token);
+
+    public static void EnsureSuccess(ProcessResult result, string message)
     {
-        if (ExitCode == 0)
-            return;
-        var detail = string.IsNullOrWhiteSpace(StandardError) ? StandardOutput : StandardError;
-        throw new InvalidOperationException($"{message}. {detail.Trim()}");
-    }
-}
-
-internal static class ProcessRunner
-{
-    public static async Task<ProcessResult> RunAsync(
-        string executable,
-        IEnumerable<string> arguments,
-        CancellationToken token)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
-
-        using var process = new Process { StartInfo = startInfo };
-        try
-        {
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Unable to start '{executable}'. Ensure it is installed and available on PATH.", ex);
-        }
-
-        var stdout = process.StandardOutput.ReadToEndAsync(token);
-        var stderr = process.StandardError.ReadToEndAsync(token);
-        await process.WaitForExitAsync(token);
-        return new(process.ExitCode, await stdout, await stderr);
+        if (!result.Succeeded)
+            throw new DockerPortMirrorException($"{message}. {result.ErrorDetail}");
     }
 }
