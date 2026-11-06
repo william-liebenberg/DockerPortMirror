@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using System.Text.Json;
-using System.Text.RegularExpressions;
+using DockerPortMirror.Docker;
+using DockerPortMirror.Ssh;
 
 var options = Options.Parse(args);
 using var appCts = new CancellationTokenSource();
@@ -179,12 +179,12 @@ internal static class DockerDiscovery
         var inspect = await ProcessRunner.RunAsync("docker", ["context", "inspect", context], token);
         inspect.EnsureSuccess($"Unable to inspect Docker context '{context}'");
 
-        var endpoint = ParseEndpoint(inspect.StandardOutput)
+        var endpoint = DockerContextResolver.ParseEndpoint(inspect.StandardOutput)
             ?? throw new InvalidOperationException($"Docker context '{context}' has no Docker endpoint.");
 
         var sshTarget = sshTargetOverride;
         if (string.IsNullOrWhiteSpace(sshTarget))
-            sshTarget = ParseSshTarget(endpoint);
+            sshTarget = SshTarget.FromEndpoint(endpoint);
 
         if (string.IsNullOrWhiteSpace(sshTarget))
         {
@@ -201,41 +201,10 @@ internal static class DockerDiscovery
 
         return new(context, endpoint, sshTarget);
     }
-
-    private static string? ParseEndpoint(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Array || document.RootElement.GetArrayLength() == 0)
-            return null;
-
-        var item = document.RootElement[0];
-        return item.TryGetProperty("Endpoints", out var endpoints)
-            && endpoints.TryGetProperty("docker", out var docker)
-            && docker.TryGetProperty("Host", out var host)
-                ? host.GetString()
-                : null;
-    }
-
-    private static string? ParseSshTarget(string endpoint)
-    {
-        if (!endpoint.StartsWith("ssh://", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        var target = endpoint["ssh://".Length..];
-        var slashIndex = target.IndexOf('/');
-        if (slashIndex >= 0)
-            target = target[..slashIndex];
-
-        return Uri.UnescapeDataString(target);
-    }
 }
 
 internal static class DockerPorts
 {
-    private static readonly Regex PublishedTcpPort = new(
-        @"(?:(?:\d{1,3}\.){3}\d{1,3}|\[::\]):(?<port>\d+)->\d+(?:-\d+)?/tcp",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
     public static async Task<HashSet<int>> GetPublishedTcpPortsAsync(string context, CancellationToken token)
     {
         var result = await ProcessRunner.RunAsync(
@@ -244,14 +213,7 @@ internal static class DockerPorts
             token);
         result.EnsureSuccess($"Unable to query Docker context '{context}'");
 
-        var ports = new HashSet<int>();
-        foreach (Match match in PublishedTcpPort.Matches(result.StandardOutput))
-        {
-            if (int.TryParse(match.Groups["port"].Value, out var port) && port is >= 1 and <= 65535)
-                ports.Add(port);
-        }
-
-        return ports;
+        return DockerPortsParser.Parse(result.StandardOutput);
     }
 }
 
@@ -375,8 +337,8 @@ internal sealed class SshTunnel : IDisposable
             throw new InvalidOperationException("Unable to start ssh.exe. Ensure the Windows OpenSSH Client is installed and on PATH.", ex);
         }
 
-        var stderr = process.StandardError.ReadToEndAsync();
-        _ = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
+        _ = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
 
         // ExitOnForwardFailure makes SSH terminate quickly when the local port cannot bind.
         await Task.Delay(300, token);

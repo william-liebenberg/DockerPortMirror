@@ -1,4 +1,4 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-dotnet run --project DockerPortMirror.csproj -- %*
+dotnet run --project src\DockerPortMirror\DockerPortMirror.csproj -- %*

@@ -1,3 +1,8 @@
 <Solution>
-  <Project Path="DockerPortMirror.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/DockerPortMirror/DockerPortMirror.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DockerPortMirror.Tests/DockerPortMirror.Tests.csproj" />
+  </Folder>
 </Solution>
