@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: WilliamLiebenberg.DockerPortMirror
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: William Liebenberg
+PublisherUrl: https://github.com/william-liebenberg
+PublisherSupportUrl: https://github.com/william-liebenberg/DockerPortMirror/issues
+PackageName: DockerPortMirror
+PackageUrl: https://github.com/william-liebenberg/DockerPortMirror
+License: MIT
+LicenseUrl: https://github.com/william-liebenberg/DockerPortMirror/blob/main/LICENSE
+ShortDescription: Mirrors the TCP ports published on a remote Docker host to localhost through SSH.
+Description: |-
+  DockerPortMirror watches the containers of a remote Docker host, reached through an SSH Docker context,
+  and opens one OpenSSH local forward per published TCP port, so every published port is reachable on
+  this machine's localhost. Tunnels are added and removed as containers start and stop.
+Moniker: dockerportmirror
+Tags:
+  - docker
+  - ssh
+  - port-forwarding
+  - tunnel
+  - cli
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -1,0 +1,39 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! Please check the troubleshooting section of the README first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output with --verbose
+      description: Run with `--verbose` and paste the output. Remove host names or user names you do not want to share.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: DockerPortMirror version
+      description: Output of `dockerportmirror --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: client-os
+    attributes:
+      label: Client OS (where DockerPortMirror runs)
+      options: [Windows, Linux, macOS]
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Docker and SSH versions
+      description: Output of `docker version --format '{{.Client.Version}} / {{.Server.Version}}'` and `ssh -V`.

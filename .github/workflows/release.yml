@@ -1,0 +1,144 @@
+name: Release
+
+# Push a tag such as v1.2.0 (or v0.1.0-rc.1 for a pre-release) to publish:
+#  - single-file, self-contained binaries for six platforms, with SHA-256 checksums, to a GitHub Release;
+#  - the .NET tool to NuGet.org, when the NUGET_API_KEY secret is set;
+#  - an updated winget manifest, when the WINGET_TOKEN secret is set (stable versions only).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  WINGET_PACKAGE_ID: WilliamLiebenberg.DockerPortMirror
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet test --configuration Release
+
+  binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish
+        run: >
+          dotnet publish src/DockerPortMirror
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none
+          --output publish/${{ matrix.rid }}
+
+      - name: Archive
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp README.md LICENSE "publish/${{ matrix.rid }}/"
+          cd "publish/${{ matrix.rid }}"
+          name="DockerPortMirror-${version}-${{ matrix.rid }}"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            zip -9 "../../dist/${name}.zip" *
+          else
+            chmod +x DockerPortMirror
+            tar -czf "../../dist/${name}.tar.gz" *
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.rid }}
+          path: dist/*
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet pack src/DockerPortMirror --configuration Release --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: dist/*.nupkg
+
+  release:
+    needs: [binaries, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # Secrets cannot be tested in an if: expose them as job variables (empty when not set).
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum DockerPortMirror-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes $prerelease \
+            dist/DockerPortMirror-* dist/SHA256SUMS.txt
+
+      - name: Push to NuGet.org
+        if: env.NUGET_API_KEY != ''
+        run: dotnet nuget push "dist/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  winget:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: windows-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: Submit the winget manifest update
+        if: env.WINGET_TOKEN != ''
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update $env:WINGET_PACKAGE_ID `
+            --version $version `
+            --urls "$base/DockerPortMirror-$version-win-x64.zip|x64" "$base/DockerPortMirror-$version-win-arm64.zip|arm64" `
+            --submit --token $env:WINGET_TOKEN
