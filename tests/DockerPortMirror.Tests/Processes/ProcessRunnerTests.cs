@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using DockerPortMirror.Processes;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DockerPortMirror.Tests.Processes;
 
 public sealed class ProcessRunnerTests
 {
     private static readonly TimeSpan LongTimeout = TimeSpan.FromSeconds(30);
+
+    private static ProcessRunner CreateRunner() => new(new NoOpChildProcessTracker(), NullLogger<ProcessRunner>.Instance);
 
     private static (string FileName, string[] Arguments) Echo(string text) =>
         OperatingSystem.IsWindows() ? ("cmd", ["/c", "echo " + text]) : ("sh", ["-c", "echo " + text]);
@@ -20,7 +23,7 @@ public sealed class ProcessRunnerTests
     {
         var (fileName, arguments) = Echo("hello");
 
-        var result = await new ProcessRunner().RunAsync(fileName, arguments, LongTimeout, TestContext.Current.CancellationToken);
+        var result = await CreateRunner().RunAsync(fileName, arguments, LongTimeout, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("hello", result.StandardOutput.Trim());
@@ -30,7 +33,7 @@ public sealed class ProcessRunnerTests
     public async Task Missing_program_is_a_user_facing_error()
     {
         var error = await Assert.ThrowsAsync<DockerPortMirrorException>(() =>
-            new ProcessRunner().RunAsync("dpm-no-such-program", [], LongTimeout, TestContext.Current.CancellationToken));
+            CreateRunner().RunAsync("dpm-no-such-program", [], LongTimeout, TestContext.Current.CancellationToken));
 
         Assert.Contains("dpm-no-such-program", error.Message, StringComparison.Ordinal);
     }
@@ -42,7 +45,7 @@ public sealed class ProcessRunnerTests
         var stopwatch = Stopwatch.StartNew();
 
         var error = await Assert.ThrowsAsync<DockerPortMirrorException>(() =>
-            new ProcessRunner().RunAsync(fileName, arguments, TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken));
+            CreateRunner().RunAsync(fileName, arguments, TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken));
 
         Assert.Contains("did not finish", error.Message, StringComparison.Ordinal);
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"Took {stopwatch.Elapsed}.");
@@ -57,7 +60,7 @@ public sealed class ProcessRunnerTests
         var stopwatch = Stopwatch.StartNew();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new ProcessRunner().RunAsync(fileName, arguments, LongTimeout, cancellation.Token));
+            CreateRunner().RunAsync(fileName, arguments, LongTimeout, cancellation.Token));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(15), $"Took {stopwatch.Elapsed}.");
     }

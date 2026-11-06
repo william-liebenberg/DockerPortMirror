@@ -1,10 +1,21 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using DockerPortMirror.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace DockerPortMirror.Processes;
 
 internal sealed class ProcessRunner : IProcessRunner
 {
+    private readonly IChildProcessTracker _tracker;
+    private readonly ILogger<ProcessRunner> _logger;
+
+    public ProcessRunner(IChildProcessTracker tracker, ILogger<ProcessRunner> logger)
+    {
+        _tracker = tracker;
+        _logger = logger;
+    }
+
     public async Task<ProcessResult> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
@@ -26,6 +37,8 @@ internal sealed class ProcessRunner : IProcessRunner
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
+        var commandLine = string.Join(' ', arguments);
+        Log.CommandRunning(_logger, fileName, commandLine);
         using var process = new Process { StartInfo = startInfo };
         try
         {
@@ -37,6 +50,7 @@ internal sealed class ProcessRunner : IProcessRunner
                 $"Unable to start '{fileName}'. Ensure it is installed and available on PATH.", ex);
         }
 
+        _tracker.Track(process);
         process.StandardInput.Close();
         var stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
@@ -52,7 +66,7 @@ internal sealed class ProcessRunner : IProcessRunner
             KillTree(process);
             cancellationToken.ThrowIfCancellationRequested();
             throw new DockerPortMirrorException(
-                $"'{fileName} {string.Join(' ', arguments)}' did not finish within {timeout.TotalSeconds:0.#}s and was stopped.");
+                $"'{fileName} {commandLine}' did not finish within {timeout.TotalSeconds:0.#}s and was stopped.");
         }
 
         return new ProcessResult(
