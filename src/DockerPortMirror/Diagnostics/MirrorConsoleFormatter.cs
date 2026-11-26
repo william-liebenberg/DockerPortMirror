@@ -15,7 +15,7 @@ internal sealed class MirrorConsoleFormatterOptions : ConsoleFormatterOptions
 
 /// <summary>
 /// Prints log entries as the tool's plain console output: messages without category, status lines
-/// (<c>+</c>, <c>-</c>, <c>!</c>) in colour, and a <c>WARNING:</c> or <c>ERROR:</c> prefix for other problems.
+/// (<c>➕</c>, <c>➖</c>, <c>!</c>) in colour, and a <c>WARNING:</c> or <c>ERROR:</c> prefix for other problems.
 /// </summary>
 internal sealed class MirrorConsoleFormatter : ConsoleFormatter, IDisposable
 {

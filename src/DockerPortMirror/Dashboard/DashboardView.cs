@@ -25,7 +25,7 @@ internal static class DashboardView
     private const string Gap = "    ";
 
     private static readonly Symbols UnicodeSymbols = new("●", "✗", "…");
-    private static readonly Symbols AsciiSymbols = new("*", "x", "...");
+    private static readonly Symbols FallbackSymbols = new("🟢", "x", "...");
 
     public static IRenderable Render(MirrorOptions options, MirrorSnapshot snapshot, IReadOnlyList<LogLine> log, DateTimeOffset now, Profile profile)
     {
@@ -34,7 +34,7 @@ internal static class DashboardView
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(profile);
 
-        var symbols = profile.Capabilities.Unicode ? UnicodeSymbols : AsciiSymbols;
+        var symbols = profile.Capabilities.Unicode ? UnicodeSymbols : FallbackSymbols;
         var width = Math.Max(profile.Width, MinimumWidth);
         var inner = width - 4; // Panel borders and padding.
 
@@ -113,9 +113,9 @@ internal static class DashboardView
                 port.State == PortState.Open ? "green" : "red"))
             .ToArray();
 
-        var containerWidth = Math.Min(MaximumContainerWidth, Math.Max("Container".Length, rows.Max(row => row.Container.Length)));
-        var localWidth = Math.Max("Local".Length, rows.Max(row => row.Local.Length));
-        var remoteWidth = Math.Max("Remote".Length, rows.Max(row => row.Remote.Length));
+        var containerWidth = Math.Min(MaximumContainerWidth, Math.Max("Container".Length, rows.Max(row => CellWidth(row.Container))));
+        var localWidth = Math.Max("Local".Length, rows.Max(row => CellWidth(row.Local)));
+        var remoteWidth = Math.Max("Remote".Length, rows.Max(row => CellWidth(row.Remote)));
         var statusWidth = Math.Max(1, width - containerWidth - localWidth - remoteWidth - (3 * ColumnGap));
 
         var table = new Table { Border = TableBorder.None, ShowHeaders = true };
@@ -201,15 +201,16 @@ internal static class DashboardView
     private static Markup Line(IReadOnlyList<Part> parts, int width, Symbols symbols)
     {
         var texts = parts.Select(part => part.Text).ToArray();
-        var overflow = texts.Sum(text => text.Length) - width;
+        var widths = texts.Select(CellWidth).ToArray();
+        var overflow = widths.Sum() - width;
         for (var i = 0; i < texts.Length && overflow > 0; i++)
         {
             if (parts[i].Flexible)
-                overflow -= Shorten(ref texts[i], Math.Max(1 + symbols.Ellipsis.Length, texts[i].Length - overflow), symbols);
+                overflow -= Shorten(ref texts[i], ref widths[i], Math.Max(1 + symbols.Ellipsis.Length, widths[i] - overflow), symbols);
         }
 
         for (var i = texts.Length - 1; i >= 0 && overflow > 0; i--)
-            overflow -= Shorten(ref texts[i], Math.Max(0, texts[i].Length - overflow), symbols);
+            overflow -= Shorten(ref texts[i], ref widths[i], Math.Max(0, widths[i] - overflow), symbols);
 
         var markup = new StringBuilder();
         for (var i = 0; i < texts.Length; i++)
@@ -223,17 +224,32 @@ internal static class DashboardView
         return new Markup(markup.ToString());
     }
 
-    /// <summary>Cuts <paramref name="text"/> to at most <paramref name="length"/> characters and returns how many it removed.</summary>
-    private static int Shorten(ref string text, int length, Symbols symbols)
+    private static int CellWidth(string text) => new Segment(text).CellCount();
+
+    /// <summary>Clips to the cell limit at a grapheme boundary and returns the number of cells removed.</summary>
+    private static int Shorten(ref string text, ref int width, int limit, Symbols symbols)
     {
-        if (text.Length <= length)
+        if (width <= limit)
             return 0;
 
-        var before = text.Length;
-        text = length > symbols.Ellipsis.Length
-            ? text[..(length - symbols.Ellipsis.Length)] + symbols.Ellipsis
-            : text[..length];
-        return before - text.Length;
+        var ellipsisWidth = CellWidth(symbols.Ellipsis);
+        var suffix = limit > ellipsisWidth ? symbols.Ellipsis : "";
+        var remaining = limit - (suffix.Length == 0 ? 0 : ellipsisWidth);
+        var end = 0;
+        while (end < text.Length && remaining > 0)
+        {
+            var length = StringInfo.GetNextTextElementLength(text.AsSpan(end));
+            var cells = CellWidth(text.Substring(end, length));
+            if (cells > remaining)
+                break;
+            end += length;
+            remaining -= cells;
+        }
+
+        var before = width;
+        text = text[..end] + suffix;
+        width = CellWidth(text);
+        return before - width;
     }
 
     /// <summary>The text on one line: line breaks, tabs and other control characters become spaces.</summary>

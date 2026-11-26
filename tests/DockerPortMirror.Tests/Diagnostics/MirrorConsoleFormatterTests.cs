@@ -1,4 +1,5 @@
 using DockerPortMirror.Diagnostics;
+using DockerPortMirror.Tests.Fakes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -17,26 +18,30 @@ public sealed class MirrorConsoleFormatterTests
         return writer.ToString();
     }
 
-    [Fact]
-    public void Status_lines_are_printed_as_they_are()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Status_lines_keep_their_symbols_and_dynamic_text(bool useColors)
     {
-        Assert.Equal(" + localhost:5432 -> mac -> 127.0.0.1:5432" + Environment.NewLine, Format(LogLevel.Information, Log.TunnelOpenedId, " + localhost:5432 -> mac -> 127.0.0.1:5432"));
-        Assert.Equal(" ! localhost:3000 failed: x (retry in 1s)" + Environment.NewLine, Format(LogLevel.Warning, Log.TunnelFailedId, " ! localhost:3000 failed: x (retry in 1s)"));
+        var logger = new RecordingLogger<MirrorConsoleFormatterTests>();
+        Log.TunnelOpened(logger, 5432, "db-*", "mac+alias", "remote->host", 5432);
+        Log.TunnelClosed(logger, 5432, "db-*");
+        Log.TunnelFailed(logger, 3000, "", "bind * -> + -", 1);
+
+        var output = logger.Records.Select(record => Format(record.Level, record.EventId.Id, record.Message, useColors: useColors));
+        string Styled(string message, int color) => (useColors ? $"\x1B[{color}m{message}\x1B[39m\x1B[22m" : message) + Environment.NewLine;
+        Assert.Equal([
+            Styled(" ➕ localhost:5432 ➡️ mac+alias ➡️ remote->host:5432 (db-*)", 32),
+            Styled(" ➖ localhost:5432 (db-*)", 33),
+            Styled(" ! localhost:3000 failed: bind * -> + - (retry in 1s)", 31),
+        ], output);
     }
 
     [Fact]
     public void Warnings_and_errors_get_a_prefix()
     {
-        Assert.Equal("WARNING: slow" + Environment.NewLine, Format(LogLevel.Warning, 200, "slow"));
+        Assert.Equal("WARNING: slow * -> + -" + Environment.NewLine, Format(LogLevel.Warning, 200, "slow * -> + -"));
         Assert.Equal("ERROR: broken" + Environment.NewLine, Format(LogLevel.Error, 300, "broken"));
-    }
-
-    [Fact]
-    public void Colours_wrap_status_lines_when_enabled()
-    {
-        var text = Format(LogLevel.Information, Log.TunnelOpenedId, " + x", useColors: true);
-
-        Assert.StartsWith("\x1B[32m + x", text, StringComparison.Ordinal);
     }
 
     [Fact]
