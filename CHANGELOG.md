@@ -28,6 +28,8 @@ Changes since the original single-file version of the tool.
 
 ### Changed
 
+- The dashboard shows mirrored ports and recent logs side by side on terminals at least 80 columns wide, giving
+  both panels more room for rows. The ports panel indicates when rows are omitted.
 - Output is produced through logging: same `+`, `-` and `!` lines, warnings and errors on standard error.
   The console output is not a stable interface for scripts.
 - With `--verbose`, SSH diagnostics are printed as they happen.

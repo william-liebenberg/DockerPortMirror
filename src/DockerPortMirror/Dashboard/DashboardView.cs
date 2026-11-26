@@ -10,18 +10,20 @@ using Spectre.Console.Rendering;
 namespace DockerPortMirror.Dashboard;
 
 /// <summary>
-/// Draws one frame of the dashboard: a banner, a header with the connection, the mirrored ports grouped by container,
-/// and the newest log lines that fit. Every line is cut to the width of the terminal, so the header and the table
-/// never wrap, and the log panel takes the height that is left.
+/// Draws the banner and connection details above the mirrored ports and recent logs. The content panels share
+/// the available height on wide terminals and stack on narrow ones.
 /// </summary>
 internal static class DashboardView
 {
-    /// <summary>The log panel keeps at least this many lines, even in a small terminal.</summary>
+    /// <summary>The stacked view keeps at least this many log lines, even if the live frame is cropped.</summary>
     public const int MinimumLogLines = 3;
 
     private const int MinimumWidth = 20;
+    private const int SideBySideWidth = 80;
+    private const int PanelWidthOverhead = 4; // Borders and horizontal padding.
+    private const int PanelHeightOverhead = 2; // Top and bottom borders.
     private const int MaximumContainerWidth = 24;
-    private const int ColumnGap = 2;
+    private const int ColumnGap = 1;
     private const string Gap = "    ";
 
     private static readonly Symbols UnicodeSymbols = new("●", "✗", "…");
@@ -36,17 +38,32 @@ internal static class DashboardView
 
         var symbols = profile.Capabilities.Unicode ? UnicodeSymbols : AsciiSymbols;
         var width = Math.Max(profile.Width, MinimumWidth);
-        var inner = width - 4; // Panel borders and padding.
-
+        var inner = width - PanelWidthOverhead;
         var banner = new RainbowBanner();
         var header = Header(options, snapshot, inner, symbols);
-        var ports = Ports(snapshot, now, inner, symbols);
 
-        // One line stays free, so the live region never scrolls the terminal.
+        // One line stays free when possible, so the live region never scrolls the terminal.
         var renderOptions = new RenderOptions(profile.Capabilities, new Size(width, profile.Height));
-        var used = HeightOf(banner, renderOptions, width) + HeightOf(header, renderOptions, width) + HeightOf(ports, renderOptions, width);
-        var logLines = Math.Max(MinimumLogLines, profile.Height - 1 - used - 2);
+        var available = profile.Height - 1 - HeightOf(banner, renderOptions, width) - HeightOf(header, renderOptions, width);
+        if (width >= SideBySideWidth)
+        {
+            // Give the four-column table more room than the single-column log.
+            var portsWidth = width * 5 / 8;
+            var logWidth = width - portsWidth;
+            var bodyHeight = Math.Max(1, available - PanelHeightOverhead);
+            var grid = new Grid();
+            grid.AddColumn(new GridColumn { Width = portsWidth, Padding = new Padding(0, 0) });
+            grid.AddColumn(new GridColumn { Width = logWidth, Padding = new Padding(0, 0) });
+            grid.AddRow(
+                Ports(snapshot, now, bodyHeight, portsWidth - PanelWidthOverhead, symbols),
+                Log(log, bodyHeight, logWidth - PanelWidthOverhead, symbols));
+            return new Rows(banner, header, grid);
+        }
 
+        var reservedLogLines = Math.Clamp(log.Count, 1, MinimumLogLines);
+        var portsLines = Math.Max(1, available - 2 * PanelHeightOverhead - reservedLogLines);
+        var ports = Ports(snapshot, now, portsLines, inner, symbols);
+        var logLines = Math.Max(MinimumLogLines, available - HeightOf(ports, renderOptions, width) - PanelHeightOverhead);
         return new Rows(banner, header, ports, Log(log, logLines, inner, symbols));
     }
 
@@ -84,11 +101,11 @@ internal static class DashboardView
         };
     }
 
-    private static Panel Ports(MirrorSnapshot snapshot, DateTimeOffset now, int width, Symbols symbols)
+    private static Panel Ports(MirrorSnapshot snapshot, DateTimeOffset now, int height, int width, Symbols symbols)
     {
         IRenderable body = snapshot.Ports.Count == 0
             ? Line([new(snapshot.HasPolled ? "No published TCP ports." : "Waiting for Docker" + symbols.Ellipsis, "grey")], width, symbols)
-            : PortTable(snapshot.Ports, now, width, symbols);
+            : PortTable(snapshot.Ports, now, height, width, symbols);
 
         return new Panel(body)
         {
@@ -98,31 +115,57 @@ internal static class DashboardView
         };
     }
 
-    private static Table PortTable(IReadOnlyList<PortStatus> ports, DateTimeOffset now, int width, Symbols symbols)
+    private static IRenderable PortTable(IReadOnlyList<PortStatus> ports, DateTimeOffset now, int height, int width, Symbols symbols)
     {
+        // A compact row keeps the port number and state readable when four columns would not fit.
+        var compact = width < 36;
+        var headerHeight = compact ? 0 : 1;
+        var visible = height >= ports.Count + headerHeight ? ports.Count : Math.Max(0, height - headerHeight - 1);
+        var omitted = Line([new($"+{ports.Count - visible} more ports", "grey")], width, symbols);
+        if (visible == 0)
+            return omitted;
+
         // Sorted by container then port, with unnamed ports last, so the ports of one container read together.
         var rows = ports
             .OrderBy(port => port.Container.Length == 0)
             .ThenBy(port => port.Container, StringComparer.OrdinalIgnoreCase)
             .ThenBy(port => port.LocalPort)
+            .Take(visible)
             .Select(port => new PortRow(
-                port.Container.Length == 0 ? "-" : port.Container,
-                $"localhost:{port.LocalPort}",
-                port.Remote,
+                port.Container.Length == 0 ? "-" : OneLine(port.Container),
+                compact ? port.LocalPort.ToString(CultureInfo.InvariantCulture) : $"localhost:{port.LocalPort}",
+                OneLine(port.Remote),
                 StatusText(port, now, symbols),
                 port.State == PortState.Open ? "green" : "red"))
             .ToArray();
 
-        var containerWidth = Math.Min(MaximumContainerWidth, Math.Max("Container".Length, rows.Max(row => row.Container.Length)));
-        var localWidth = Math.Max("Local".Length, rows.Max(row => row.Local.Length));
-        var remoteWidth = Math.Max("Remote".Length, rows.Max(row => row.Remote.Length));
-        var statusWidth = Math.Max(1, width - containerWidth - localWidth - remoteWidth - (3 * ColumnGap));
+        if (compact)
+        {
+            var lines = rows.Select((row, i) =>
+            {
+                var name = i == 0 || !string.Equals(row.Container, rows[i - 1].Container, StringComparison.Ordinal) ? " " + row.Container : "";
+                return Line([new(row.Local + " "), new(row.Status, row.StatusStyle), new(name)], width, symbols);
+            });
+            return new Rows(visible < ports.Count ? lines.Append(omitted) : lines);
+        }
+
+        var containerWidth = Math.Min(MaximumContainerWidth, ColumnWidth("Container", rows.Select(row => row.Container)));
+        var localWidth = ColumnWidth("Local", rows.Select(row => row.Local));
+        var remoteWidth = ColumnWidth("Remote", rows.Select(row => row.Remote));
+        var available = width - 3 * ColumnGap;
+        // Reserve room for the state and retry countdown before allocating space to long addresses and names.
+        var statusReserve = rows.Any(row => row.StatusStyle == "red") ? 18 : 6;
+        var excess = Math.Max(0, containerWidth + localWidth + remoteWidth + statusReserve - available);
+        ReduceWidth(ref containerWidth, 5, ref excess);
+        ReduceWidth(ref remoteWidth, 5, ref excess);
+        ReduceWidth(ref localWidth, 5, ref excess);
+        var statusWidth = available - containerWidth - localWidth - remoteWidth;
 
         var table = new Table { Border = TableBorder.None, ShowHeaders = true };
-        table.AddColumn(Column("Container", ColumnGap));
-        table.AddColumn(Column("Local", ColumnGap));
-        table.AddColumn(Column("Remote", ColumnGap));
-        table.AddColumn(Column("Status", 0));
+        table.AddColumn(Column("Container", containerWidth, ColumnGap, symbols));
+        table.AddColumn(Column("Local", localWidth, ColumnGap, symbols));
+        table.AddColumn(Column("Remote", remoteWidth, ColumnGap, symbols));
+        table.AddColumn(Column("Status", statusWidth, 0, symbols));
 
         string? previous = null;
         foreach (var row in rows)
@@ -137,11 +180,20 @@ internal static class DashboardView
                 Line([new(row.Status, row.StatusStyle)], statusWidth, symbols));
         }
 
-        return table;
+        return visible < ports.Count ? new Rows(table, omitted) : table;
     }
 
-    private static TableColumn Column(string header, int rightPadding) =>
-        new(new Markup($"[grey]{header}[/]")) { Padding = new Padding(0, 0, rightPadding, 0), NoWrap = true };
+    private static int ColumnWidth(string header, IEnumerable<string> values) => Math.Max(header.Length, values.Max(CellWidth));
+
+    private static void ReduceWidth(ref int width, int minimum, ref int excess)
+    {
+        var removed = Math.Min(width - minimum, excess);
+        width -= removed;
+        excess -= removed;
+    }
+
+    private static TableColumn Column(string header, int width, int rightPadding, Symbols symbols) =>
+        new(Line([Label(header)], width, symbols)) { Padding = new Padding(0, 0, rightPadding, 0), NoWrap = true };
 
     private static string StatusText(PortStatus port, DateTimeOffset now, Symbols symbols)
     {
@@ -200,16 +252,16 @@ internal static class DashboardView
     /// </summary>
     private static Markup Line(IReadOnlyList<Part> parts, int width, Symbols symbols)
     {
-        var texts = parts.Select(part => part.Text).ToArray();
-        var overflow = texts.Sum(text => text.Length) - width;
+        var texts = parts.Select(part => OneLine(part.Text)).ToArray();
+        var overflow = texts.Sum(CellWidth) - width;
         for (var i = 0; i < texts.Length && overflow > 0; i++)
         {
             if (parts[i].Flexible)
-                overflow -= Shorten(ref texts[i], Math.Max(1 + symbols.Ellipsis.Length, texts[i].Length - overflow), symbols);
+                overflow -= Shorten(ref texts[i], Math.Max(1 + symbols.Ellipsis.Length, CellWidth(texts[i]) - overflow), symbols);
         }
 
         for (var i = texts.Length - 1; i >= 0 && overflow > 0; i--)
-            overflow -= Shorten(ref texts[i], Math.Max(0, texts[i].Length - overflow), symbols);
+            overflow -= Shorten(ref texts[i], Math.Max(0, CellWidth(texts[i]) - overflow), symbols);
 
         var markup = new StringBuilder();
         for (var i = 0; i < texts.Length; i++)
@@ -223,25 +275,41 @@ internal static class DashboardView
         return new Markup(markup.ToString());
     }
 
-    /// <summary>Cuts <paramref name="text"/> to at most <paramref name="length"/> characters and returns how many it removed.</summary>
-    private static int Shorten(ref string text, int length, Symbols symbols)
+    private static int CellWidth(string text) => new Segment(text).CellCount();
+
+    /// <summary>Cuts text at a text element boundary to fit the cell budget, and returns the cells removed.</summary>
+    private static int Shorten(ref string text, int width, Symbols symbols)
     {
-        if (text.Length <= length)
+        var before = CellWidth(text);
+        if (before <= width)
             return 0;
 
-        var before = text.Length;
-        text = length > symbols.Ellipsis.Length
-            ? text[..(length - symbols.Ellipsis.Length)] + symbols.Ellipsis
-            : text[..length];
-        return before - text.Length;
+        var ellipsis = width > symbols.Ellipsis.Length ? symbols.Ellipsis : "";
+        var remaining = width - ellipsis.Length;
+        var end = 0;
+        while (end < text.Length && remaining > 0)
+        {
+            var length = StringInfo.GetNextTextElementLength(text.AsSpan(end));
+            var cells = CellWidth(text.Substring(end, length));
+            if (cells > remaining)
+                break;
+            end += length;
+            remaining -= cells;
+        }
+
+        text = text[..end] + ellipsis;
+        return before - width + remaining;
     }
 
     /// <summary>The text on one line: line breaks, tabs and other control characters become spaces.</summary>
     private static string OneLine(string text)
     {
+        if (!text.Any(c => char.IsControl(c) || c is '\u2028' or '\u2029'))
+            return text;
+
         var builder = new StringBuilder(text.Length);
-        foreach (var c in text.TrimEnd())
-            builder.Append(char.IsControl(c) ? ' ' : c);
+        foreach (var c in text)
+            builder.Append(char.IsControl(c) || c is '\u2028' or '\u2029' ? ' ' : c);
         return builder.ToString();
     }
 

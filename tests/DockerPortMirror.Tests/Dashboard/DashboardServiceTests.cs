@@ -29,13 +29,17 @@ public sealed class DashboardServiceTests
 
         await service.StartAsync(token);
         await WaitUntilAsync(() => console.Output.Contains("Waiting for Docker", StringComparison.Ordinal), token);
-        Assert.Contains(firstBannerRow, LastFrame(console.Output, "Mirrored ports (0)"), StringComparison.Ordinal);
+        Assert.Contains(firstBannerRow, LastFrame(console.Output, firstBannerRow), StringComparison.Ordinal);
 
         await using (var reconciler = new TunnelReconciler(new FakeTunnelFactory(), TimeProvider.System, options, status, loggerFactory.CreateLogger<TunnelReconciler>()))
         {
             await reconciler.ReconcileAsync(new HashSet<PublishedPort> { new(IPAddress.Any, 5432, "postgres") }, token);
-            await WaitUntilAsync(() => console.Output.Contains("localhost:5432", StringComparison.Ordinal), token);
-            Assert.Contains(firstBannerRow, LastFrame(console.Output, "Mirrored ports (1)"), StringComparison.Ordinal);
+            await WaitUntilAsync(() =>
+            {
+                var frame = LastFrame(console.Output, firstBannerRow);
+                return frame.Contains("● open", StringComparison.Ordinal) && frame.Contains("+ localhost:5432", StringComparison.Ordinal);
+            }, token);
+            Assert.Matches(@"Mirrored ports \(1\)[^\r\n]+Log", LastFrame(console.Output, firstBannerRow));
             await reconciler.ReconcileAsync(new HashSet<PublishedPort>(), token);
         }
 
@@ -43,23 +47,27 @@ public sealed class DashboardServiceTests
         log.Add(LogLevel.Information, 6, "Stopping tunnels...");
         await service.StopAsync(token);
 
-        var finalFrame = LastFrame(console.Output, "Mirrored ports (0)");
-        Assert.Contains(firstBannerRow, finalFrame, StringComparison.Ordinal);
+        var finalFrame = LastFrame(console.Output, firstBannerRow);
+        Assert.StartsWith(firstBannerRow, finalFrame, StringComparison.Ordinal);
+        Assert.Matches(@"Mirrored ports \(0\)[^\r\n]+Log", finalFrame);
+        Assert.DoesNotContain("● open", finalFrame, StringComparison.Ordinal);
         Assert.Contains(" - localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
         Assert.Contains("Stopping tunnels...", finalFrame, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Short_live_frame_crops_the_bottom_not_the_banner()
+    [Theory]
+    [InlineData(79)]
+    [InlineData(120)]
+    public async Task Short_live_frame_crops_the_bottom_not_the_banner(int width)
     {
         var token = TestContext.Current.CancellationToken;
         var log = new DashboardLog(TimeProvider.System);
         log.Add(LogLevel.Information, 0, "This log is below the fold.");
-        using var console = new TestConsole().Width(120).Height(8).Interactive().SupportsUnicode(true);
+        using var console = new TestConsole().Width(width).Height(8).Interactive().SupportsUnicode(true);
         using var service = new DashboardService(new MirrorStatus(), log, Options.Create(new MirrorOptions()), TimeProvider.System, console);
         using var figlet = new TestConsole().Width(120);
         figlet.Write(new FigletText(AppInfo.Name));
-        var firstBannerRow = figlet.Lines[0].TrimEnd();
+        var firstBannerRow = figlet.Lines[0][..Math.Min(width, figlet.Lines[0].Length)].TrimEnd();
 
         await service.StartAsync(token);
         await WaitUntilAsync(() => console.Output.Contains(firstBannerRow, StringComparison.Ordinal), token);
@@ -68,12 +76,10 @@ public sealed class DashboardServiceTests
         Assert.DoesNotContain("This log is below the fold.", liveOutput, StringComparison.Ordinal);
     }
 
-    private static string LastFrame(string output, string portsHeader)
+    private static string LastFrame(string output, string firstBannerRow)
     {
-        var portsIndex = output.LastIndexOf("Mirrored ports", StringComparison.Ordinal);
-        Assert.StartsWith(portsHeader, output[portsIndex..], StringComparison.Ordinal);
-        var previousFrame = output.LastIndexOf("Mirrored ports", portsIndex - 1, StringComparison.Ordinal);
-        return output[(previousFrame < 0 ? 0 : previousFrame + "Mirrored ports".Length)..];
+        var start = output.LastIndexOf(firstBannerRow, StringComparison.Ordinal);
+        return start < 0 ? "" : output[start..];
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)

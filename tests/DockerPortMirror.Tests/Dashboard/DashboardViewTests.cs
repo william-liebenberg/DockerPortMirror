@@ -7,6 +7,7 @@ using DockerPortMirror.Mirroring;
 using DockerPortMirror.Ssh;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
 
 namespace DockerPortMirror.Tests.Dashboard;
@@ -115,12 +116,12 @@ public sealed class DashboardViewTests
     }
 
     [Theory]
-    [InlineData(4, "✗ retry in 4s: Address already in use")]
-    [InlineData(3.2, "✗ retry in 4s: Address already in use")]
-    [InlineData(-1, "✗ retrying: Address already in use")]
+    [InlineData(4, "✗ retry in 4s")]
+    [InlineData(3.2, "✗ retry in 4s")]
+    [InlineData(-1, "✗ retrying")]
     public void Retrying_port_counts_down(double seconds, string expected)
     {
-        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Retrying(3000, "api", "Address already in use", seconds)]));
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Retrying(3000, "api", "bind: Address already in use", seconds)]));
 
         Assert.Contains(lines, line => line.Contains(expected, StringComparison.Ordinal));
     }
@@ -138,6 +139,32 @@ public sealed class DashboardViewTests
         Assert.DoesNotContain("Ctrl+C", console.Output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(80)]
+    [InlineData(91)]
+    [InlineData(120)]
+    public void Wide_panels_start_on_the_same_row_after_the_connection(int width)
+    {
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, []), width: width);
+
+        var ports = IndexOf(lines, "Mirrored ports (0)");
+        Assert.Equal(IndexOf(lines, "Docker  ● reachable") + 2, ports);
+        Assert.Equal(ports, IndexOf(lines, "Log"));
+        Assert.True(lines[ports].IndexOf("Mirrored ports", StringComparison.Ordinal) < lines[ports].IndexOf("Log", StringComparison.Ordinal));
+        Assert.Equal(width, lines[ports].Length);
+        Assert.Contains(lines, line => line.Contains("No messages yet.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Narrow_panels_are_stacked()
+    {
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), [Line("latest log")], width: 79);
+
+        Assert.True(IndexOf(lines, "Mirrored ports (1)") < IndexOf(lines, "localhost:5432"));
+        Assert.True(IndexOf(lines, "localhost:5432") < IndexOf(lines, "Log"));
+        Assert.True(IndexOf(lines, "Log") < IndexOf(lines, "latest log"));
+    }
+
     [Fact]
     public void Log_keeps_the_newest_lines_that_fit()
     {
@@ -145,19 +172,36 @@ public sealed class DashboardViewTests
 
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, height: 22);
 
-        // Banner (6) + header (4) + ports (4) + log (2 + 5) = 21: one line below the terminal height.
+        // Banner (6) + connection (4) + content borders (2) + 9 log lines = 21.
         Assert.Equal(21, lines.Length);
-        Assert.Contains(lines, line => line.Contains("message 99", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("message 95", StringComparison.Ordinal));
-        Assert.DoesNotContain(lines, line => line.Contains("message 94", StringComparison.Ordinal));
+        Assert.Equal(Enumerable.Range(91, 9).Select(i => $"message {i}"), Messages(lines));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void Ports_and_logs_have_independent_height_budgets(int logCount)
+    {
+        var ports = Enumerable.Range(3000, 20).Reverse().Select(i => Open(i, "api")).ToArray();
+        var log = Enumerable.Range(0, logCount).Select(i => Line($"message {i:00}")).ToArray();
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, ports), log, height: 22);
+
+        Assert.Equal(21, lines.Length);
+        Assert.Equal(IndexOf(lines, "Mirrored ports (20)"), IndexOf(lines, "Log"));
+        Assert.Equal(Enumerable.Range(3000, 7).Select(i => $"localhost:{i}"), lines.SelectMany(line => Regex.Matches(line, @"localhost:\d+").Select(match => match.Value)));
+        Assert.Contains(lines, line => line.Contains("+13 more ports", StringComparison.Ordinal));
+        Assert.Equal(logCount == 0 ? [] : Enumerable.Range(91, 9).Select(i => $"message {i}"), Messages(lines));
+    }
+
+    private static IEnumerable<string> Messages(string[] lines) =>
+        lines.SelectMany(line => Regex.Matches(line, @"message \d+").Select(match => match.Value));
 
     [Fact]
     public void Small_terminal_keeps_a_few_log_lines()
     {
         var log = Enumerable.Range(0, 10).Select(i => Line($"message {i}")).ToArray();
 
-        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, height: 8);
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, width: 79, height: 8);
 
         Assert.Equal(DashboardView.MinimumLogLines, lines.Count(line => line.Contains("message", StringComparison.Ordinal)));
         Assert.Contains(lines, line => line.Contains("message 9", StringComparison.Ordinal));
@@ -174,27 +218,47 @@ public sealed class DashboardViewTests
                 Line("Unable to query Docker context 'remote'.", LogLevel.Warning, 200),
                 Line("broken", LogLevel.Error, 300),
                 new LogLine(Now, LogLevel.Error, 300, "   at Somewhere()", IsContinuation: true),
-            ]);
+            ], width: 220);
 
-        Assert.Contains(lines, line => line.StartsWith($"│ {time}  + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres) ", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.StartsWith($"│ {time}  WARNING: Unable to query Docker context 'remote'. ", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.StartsWith($"│ {time}  ERROR: broken ", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.StartsWith("│ " + new string(' ', 10) + "   at Somewhere()", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres) ", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  WARNING: Unable to query Docker context 'remote'. ", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  ERROR: broken ", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("│ " + new string(' ', 10) + "   at Somewhere()", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true, "…", "✗")]
+    [InlineData(false, "...", "x")]
+    public void Long_lines_are_cut_to_their_panel_width(bool unicode, string ellipsis, string failed)
+    {
+        var port = Retrying(65535, "frontend-with-a-long-container-name", "Address already in use", 4) with
+        {
+            Remote = "[2001:db8:85a3:0000:0000:8a2e:0370:7334]:65535",
+        };
+        var lines = Render(
+            new MirrorSnapshot(Endpoint, true, null, [port]),
+            [Line("bind " + new string('a', 100) + "\nshould not be a new row", LogLevel.Warning, 200)],
+            width: 80, unicode: unicode);
+
+        Assert.Equal(14, lines.Length);
+        Assert.All(lines, line => Assert.True(line.Length <= 80, line));
+        var portsRow = lines[IndexOf(lines, "localhost:65535")];
+        Assert.Contains(failed + " retry in 4s", portsRow[..50], StringComparison.Ordinal);
+        Assert.Contains(ellipsis, portsRow[..50], StringComparison.Ordinal);
+        var logRow = lines[IndexOf(lines, "WARNING: bind")];
+        Assert.Contains(ellipsis, logRow[50..], StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Long_lines_are_cut_with_an_ellipsis_instead_of_wrapping()
+    public void Wide_unicode_text_fits_in_its_panel_without_wrapping()
     {
-        var reason = string.Join(" ", Enumerable.Repeat("bind: Address already in use", 10));
-        var lines = Render(
-            new MirrorSnapshot(Endpoint, true, null, [Retrying(3000, "api", reason, 4), Open(5432, "postgres")]),
-            [Line(reason, LogLevel.Warning, 200)],
-            width: 80);
+        var text = string.Concat(Enumerable.Repeat("港🚢", 40));
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, text)]), [Line(text)], width: 80);
 
-        Assert.All(lines, line => Assert.True(line.Length <= 80, line));
-        Assert.Contains(lines, line => line.Contains("✗ retry in 4s: bind", StringComparison.Ordinal) && line.EndsWith("… │", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("WARNING: bind", StringComparison.Ordinal) && line.EndsWith("… │", StringComparison.Ordinal));
-        Assert.Equal(1, lines.Count(line => line.Contains("localhost:3000", StringComparison.Ordinal)));
+        Assert.Equal(14, lines.Length);
+        Assert.All(lines, line => Assert.True(new Segment(line).CellCount() <= 80, line));
+        Assert.Equal(1, lines.Count(line => line.Contains("localhost:5432", StringComparison.Ordinal)));
+        Assert.Equal(2, lines.Count(line => line.Contains('港') && line.Contains('…')));
     }
 
     [Fact]
@@ -203,7 +267,7 @@ public sealed class DashboardViewTests
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres"), Retrying(3000, "api", "in use", 2)]), unicode: false);
 
         Assert.Contains(lines, line => line.Contains("* open", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("x retry in 2s: in use", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("x retry in 2s", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("* reachable", StringComparison.Ordinal));
     }
 }
