@@ -45,7 +45,8 @@ public sealed class DashboardServiceTests
 
         var finalFrame = LastFrame(console.Output, "Mirrored ports (0)");
         Assert.Contains(firstBannerRow, finalFrame, StringComparison.Ordinal);
-        Assert.Contains(" - localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
+        Assert.Contains(" ➕ localhost:5432 ➡️ fakehost ➡️ 127.0.0.1:5432 (postgres)", finalFrame, StringComparison.Ordinal);
+        Assert.Contains(" ➖ localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
         Assert.Contains("Stopping tunnels...", finalFrame, StringComparison.Ordinal);
     }
 

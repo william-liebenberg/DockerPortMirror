@@ -176,20 +176,20 @@ public sealed class TunnelReconcilerTests : IAsyncDisposable
         _factory.Failures[3000] = "in use";
         HashSet<PublishedPort> ports =
         [
-            new(IPAddress.Any, 5432, "postgres"),
-            new(IPAddress.IPv6Any, 5432, "postgres"),
+            new(IPAddress.Any, 5432, "postgres-db"),
+            new(IPAddress.IPv6Any, 5432, "postgres-db"),
             new(IPAddress.Any, 3000, "api"),
             new(IPAddress.Any, 9000, "b"),
             new(IPAddress.Parse("127.0.0.1"), 9000, "a"),
         ];
 
         await _reconciler.ReconcileAsync(ports, Token);
-        Assert.Equal(["api", "postgres", "a, b"], _status.Snapshot().Ports.Select(port => port.Container));
+        Assert.Equal(["api", "postgres-db", "a, b"], _status.Snapshot().Ports.Select(port => port.Container));
         await _reconciler.ReconcileAsync(new HashSet<PublishedPort>(), Token);
 
-        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelOpenedId && record.Message.EndsWith("127.0.0.1:5432 (postgres)", StringComparison.Ordinal));
+        Assert.Contains(_logger.Records, record => record.EventId.Id == 100 && record.Level == LogLevel.Information && record.Message == " ➕ localhost:5432 ➡️ fakehost ➡️ 127.0.0.1:5432 (postgres-db)");
         Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelFailedId && record.Message.StartsWith(" ! localhost:3000 (api) failed: in use", StringComparison.Ordinal));
-        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelClosedId && record.Message == " - localhost:5432 (postgres)");
+        Assert.Contains(_logger.Records, record => record.EventId.Id == 101 && record.Level == LogLevel.Information && record.Message == " ➖ localhost:5432 (postgres-db)");
     }
 
     [Fact]
@@ -197,7 +197,9 @@ public sealed class TunnelReconcilerTests : IAsyncDisposable
     {
         await _reconciler.ReconcileAsync(Ports(8080), Token);
 
-        Assert.Contains(_logger.Records, record => record.Message == " + localhost:8080 -> fakehost -> 127.0.0.1:8080");
+        await _reconciler.ReconcileAsync(Ports(), Token);
+        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelOpenedId && record.Message == " ➕ localhost:8080 ➡️ fakehost ➡️ 127.0.0.1:8080");
+        Assert.Contains(_logger.Records, record => record.EventId.Id == Log.TunnelClosedId && record.Message == " ➖ localhost:8080");
     }
 
     [Fact]

@@ -24,13 +24,15 @@ Changes since the original single-file version of the tool.
   container with their status and retry countdown, and a log panel. `--no-dashboard` (`NoDashboard`,
   `DOCKERPORTMIRROR_NODASHBOARD`) keeps the line-by-line output, which is also used when the output is redirected.
 - A rainbow DockerPortMirror banner at the top of every dashboard frame.
-- The `+`, `-` and `!` lines show the container that publishes the port.
+- Tunnel status lines show the container that publishes the port.
 
 ### Changed
 
-- Output is produced through logging: same `+`, `-` and `!` lines, warnings and errors on standard error.
+- Output is produced through logging, with warnings and errors on standard error.
   The console output is not a stable interface for scripts.
 - With `--verbose`, SSH diagnostics are printed as they happen.
+- Tunnel logs use `➕`, `➡️` and `➖` for decorative markers, including when redirected. The live dashboard uses
+  `🟢` for healthy statuses on profiles that report no Unicode support.
 
 ### Fixed
 
