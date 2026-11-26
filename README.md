@@ -86,16 +86,18 @@ The panels are shown below without the banner.
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Mirrored ports (4) ────────────────────────────────────────────────────╮ ╭─ Log ────────────────────────────────────╮
 │ Container Local          Remote         Status                         │ │ 10:41:02  + localhost:5432 -> me@dockerh… │
-│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s: bind [127.0.0.1…  │ │ 10:41:02  + localhost:8080 -> me@dockerh… │
-│ postgres  localhost:5432 127.0.0.1:5432 ● open                           │ │ 10:41:02  + localhost:8443 -> me@dockerh… │
-│ web       localhost:8080 127.0.0.1:8080 ● open                           │ │ 10:41:03  ! localhost:3000 (api) failed:… │
-│           localhost:8443 127.0.0.1:8443 ● open                           │ ╰────────────────────────────────────────╯
+│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s                    │ │ 10:41:02  + localhost:8080 -> me@dockerh… │
+│ ❌ Address already in use (bind [127.0.0.1]:3000)                        │ │ 10:41:02  + localhost:8443 -> me@dockerh… │
+│ postgres  localhost:5432 127.0.0.1:5432 ● open                           │ │ 10:41:03  ! localhost:3000 (api) failed:… │
+│ web       localhost:8080 127.0.0.1:8080 ● open                           │ ╰────────────────────────────────────────╯
+│           localhost:8443 127.0.0.1:8443 ● open                           │
 ╰─────────────────────────────────────────────────────────────────────────╯
 ```
 
 Ports are grouped by container. A port that could not be mirrored is retried with a growing delay
-(1s, 2s, 4s … 60s), and its status counts down to the next attempt. When `docker ps` fails, the Docker status turns
-red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
+(1s, 2s, 4s … 60s), and its status counts down to the next attempt. When there is room, the failure reason appears
+on its own line below the port, marked with ❌ (`x` on ASCII terminals). When `docker ps` fails, the Docker status
+turns red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
 screen.
 
 When the output is redirected, or with `--no-dashboard`, it prints one line per event instead:
