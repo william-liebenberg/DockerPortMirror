@@ -23,6 +23,7 @@ Changes since the original single-file version of the tool.
 - A live dashboard in the terminal (Spectre.Console): connection and Docker status, mirrored ports grouped by
   container with their status and retry countdown, and a log panel. `--no-dashboard` (`NoDashboard`,
   `DOCKERPORTMIRROR_NODASHBOARD`) keeps the line-by-line output, which is also used when the output is redirected.
+- A rainbow DockerPortMirror banner at the top of every dashboard frame.
 - The `+`, `-` and `!` lines show the container that publishes the port.
 
 ### Changed

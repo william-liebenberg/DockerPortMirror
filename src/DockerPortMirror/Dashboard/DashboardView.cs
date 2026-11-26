@@ -10,9 +10,9 @@ using Spectre.Console.Rendering;
 namespace DockerPortMirror.Dashboard;
 
 /// <summary>
-/// Draws one frame of the dashboard: a header with the connection, the mirrored ports grouped by container, and
-/// the newest log lines that fit. Every line is cut to the width of the terminal, so the header and the table never
-/// wrap, and the log panel takes the height that is left.
+/// Draws one frame of the dashboard: a banner, a header with the connection, the mirrored ports grouped by container,
+/// and the newest log lines that fit. Every line is cut to the width of the terminal, so the header and the table
+/// never wrap, and the log panel takes the height that is left.
 /// </summary>
 internal static class DashboardView
 {
@@ -38,15 +38,16 @@ internal static class DashboardView
         var width = Math.Max(profile.Width, MinimumWidth);
         var inner = width - 4; // Panel borders and padding.
 
+        var banner = new RainbowBanner();
         var header = Header(options, snapshot, inner, symbols);
         var ports = Ports(snapshot, now, inner, symbols);
 
         // One line stays free, so the live region never scrolls the terminal.
         var renderOptions = new RenderOptions(profile.Capabilities, new Size(width, profile.Height));
-        var used = HeightOf(header, renderOptions, width) + HeightOf(ports, renderOptions, width);
+        var used = HeightOf(banner, renderOptions, width) + HeightOf(header, renderOptions, width) + HeightOf(ports, renderOptions, width);
         var logLines = Math.Max(MinimumLogLines, profile.Height - 1 - used - 2);
 
-        return new Rows(header, ports, Log(log, logLines, inner, symbols));
+        return new Rows(banner, header, ports, Log(log, logLines, inner, symbols));
     }
 
     private static Panel Header(MirrorOptions options, MirrorSnapshot snapshot, int width, Symbols symbols)

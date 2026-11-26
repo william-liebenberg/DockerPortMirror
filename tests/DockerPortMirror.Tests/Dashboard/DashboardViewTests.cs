@@ -35,6 +35,50 @@ public sealed class DashboardViewTests
     private static int IndexOf(string[] lines, string text) => Array.FindIndex(lines, line => line.Contains(text, StringComparison.Ordinal));
 
     [Fact]
+    public void Colorless_banner_spells_the_app_name_above_the_header()
+    {
+        using var expected = new TestConsole().Width(120);
+        expected.Write(new FigletText("DockerPortMirror"));
+        var figlet = expected.Lines.Select(line => line.TrimEnd()).ToArray();
+
+        using var console = new TestConsole().Width(120).Colors(ColorSystem.NoColors).EmitAnsiSequences();
+        console.Write(DashboardView.Render(new MirrorOptions(), MirrorSnapshot.Empty, [], Now, console.Profile));
+
+        var lines = console.Lines.Select(line => line.TrimEnd()).ToArray();
+        Assert.Equal(figlet, lines[..figlet.Length]);
+        Assert.Contains(AppInfo.Name, lines[figlet.Length], StringComparison.Ordinal);
+        Assert.DoesNotContain("\x1b", console.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Banner_uses_multiple_foreground_colors()
+    {
+        using var console = new TestConsole().Width(120).Colors(ColorSystem.Standard).EmitAnsiSequences();
+        console.Write(DashboardView.Render(new MirrorOptions(), MirrorSnapshot.Empty, [], Now, console.Profile));
+
+        var headerIndex = Array.FindIndex(console.Lines.ToArray(), line => line.Contains(AppInfo.Name, StringComparison.Ordinal));
+        Assert.True(headerIndex > 0);
+        var banner = string.Join('\n', console.Lines.Take(headerIndex));
+        var colors = Regex.Matches(banner, @"\x1b\[(?:3[0-7]|9[0-7])m").Select(match => match.Value).Distinct();
+        Assert.True(colors.Count() >= 4, banner);
+    }
+
+    [Theory]
+    [InlineData(20, 5)]
+    [InlineData(8, 3)]
+    [InlineData(1, 1)]
+    public void Narrow_short_terminal_renders_clipped_banner(int width, int height)
+    {
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), width: width, height: height);
+
+        using var expected = new TestConsole().Width(120);
+        expected.Write(new FigletText(AppInfo.Name));
+        var clipped = expected.Lines.Select(line => line[..Math.Min(line.Length, width)].TrimEnd()).ToArray();
+
+        Assert.Equal(clipped, lines[..clipped.Length]);
+    }
+
+    [Fact]
     public void Header_shows_the_connection()
     {
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, []));
@@ -99,13 +143,13 @@ public sealed class DashboardViewTests
     {
         var log = Enumerable.Range(0, 100).Select(i => Line($"message {i:00}")).ToArray();
 
-        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, height: 20);
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, height: 22);
 
-        // Header (4) + ports (4) + log (2 + 9) = 19: one line below the terminal height.
-        Assert.Equal(19, lines.Length);
+        // Banner (6) + header (4) + ports (4) + log (2 + 5) = 21: one line below the terminal height.
+        Assert.Equal(21, lines.Length);
         Assert.Contains(lines, line => line.Contains("message 99", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("message 91", StringComparison.Ordinal));
-        Assert.DoesNotContain(lines, line => line.Contains("message 90", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("message 95", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("message 94", StringComparison.Ordinal));
     }
 
     [Fact]
