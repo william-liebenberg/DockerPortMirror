@@ -32,7 +32,7 @@ Changes since the original single-file version of the tool.
   The console output is not a stable interface for scripts.
 - With `--verbose`, SSH diagnostics are printed as they happen.
 - Tunnel logs use `➕`, `➡️` and `➖` for decorative markers, including when redirected. The live dashboard uses
-  `🟢` for healthy statuses on profiles that report no Unicode support.
+  &#x1F7E2; for healthy statuses on profiles that report no Unicode support.
 
 ### Fixed
 

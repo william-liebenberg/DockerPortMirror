@@ -101,8 +101,9 @@ Ports are grouped by container. A port that could not be mirrored is retried wit
 (1s, 2s, 4s … 60s), and its status counts down to the next attempt. When `docker ps` fails, the Docker status turns
 red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
 screen.
-The dashboard marks reachable Docker and open ports with `●`, or `🟢` if the console profile reports that Unicode
-is unavailable.
+
+The dashboard marks reachable Docker and open ports with `●`, or &#x1F7E2; if the console profile reports that
+Unicode is unavailable.
 
 When the output is redirected, or with `--no-dashboard`, it prints one line per event instead:
 

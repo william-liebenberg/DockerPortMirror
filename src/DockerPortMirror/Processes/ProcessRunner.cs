@@ -33,6 +33,8 @@ internal sealed class ProcessRunner : IProcessRunner
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = ConsoleOutput.OriginalEncoding,
+            StandardErrorEncoding = ConsoleOutput.OriginalEncoding,
         };
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
