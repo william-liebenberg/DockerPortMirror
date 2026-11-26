@@ -72,34 +72,32 @@ dockerportmirror
 ```
 
 In a terminal it shows a live dashboard topped by a rainbow DockerPortMirror figlet (monochrome on terminals
-without color). Below the banner are panels for the connection, mirrored ports and their status, and recent log
-messages. Short terminals can cut off the bottom of the dashboard, hiding port rows or log messages. Make the
-terminal taller to see more, or run `dockerportmirror --no-dashboard` to print one line per event instead.
+without color). Below the connection panel, mirrored ports appear on the left and recent logs on the right when the
+terminal is at least 80 columns wide. On narrower terminals, the panels stack. The ports heading always shows the
+total count, and a note shows how many port rows did not fit. Widen the terminal to see more of each line, or make it
+taller to see more port rows and recent logs. Very short terminals can still cut off the bottom of the dashboard.
+Use `dockerportmirror --no-dashboard` to print one line per event instead.
 The panels are shown below without the banner.
 
 ```text
-╭─DockerPortMirror 1.2.0───────────────────────────────────────────────────────────────────╮
-│ Context  remote (ssh://me@dockerhost)    SSH  me@dockerhost                              │
-│ Bind  127.0.0.1    Poll  2s    Docker  ● reachable    Ctrl+C to stop                     │
-╰──────────────────────────────────────────────────────────────────────────────────────────╯
-╭─Mirrored ports (4)───────────────────────────────────────────────────────────────────────╮
-│ Container  Local           Remote          Status                                        │
-│ api        localhost:3000  127.0.0.1:3000  ✗ retry in 4s: bind [127.0.0.1]:3000: Addres… │
-│ postgres   localhost:5432  127.0.0.1:5432  ● open                                        │
-│ web        localhost:8080  127.0.0.1:8080  ● open                                        │
-│            localhost:8443  127.0.0.1:8443  ● open                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────╯
-╭─Log──────────────────────────────────────────────────────────────────────────────────────╮
-│ 10:41:02  ➕ localhost:5432 ➡️ me@dockerhost ➡️ 127.0.0.1:5432 (postgres)                │
-│ 10:41:02  ➕ localhost:8080 ➡️ me@dockerhost ➡️ 127.0.0.1:8080 (web)                     │
-│ 10:41:02  ➕ localhost:8443 ➡️ me@dockerhost ➡️ 127.0.0.1:8443 (web)                     │
-│ 10:41:03  ! localhost:3000 (api) failed: bind [127.0.0.1]:3000: Address already in use … │
-╰──────────────────────────────────────────────────────────────────────────────────────────╯
+╭─DockerPortMirror 1.2.0────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Context  remote (ssh://me@dockerhost)    SSH  me@dockerhost                                                          │
+│ Bind  127.0.0.1    Poll  2s    Docker  ● reachable    Ctrl+C to stop                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Mirrored ports (4) ────────────────────────────────────────────────────╮ ╭─ Log ────────────────────────────────────╮
+│ Container Local          Remote         Status                         │ │ 10:41:02  ➕ localhost:5432 ➡️ me@dockerh… │
+│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s                    │ │ 10:41:02  ➕ localhost:8080 ➡️ me@dockerh… │
+│ ❌ Address already in use (bind [127.0.0.1]:3000)                        │ │ 10:41:02  ➕ localhost:8443 ➡️ me@dockerh… │
+│ postgres  localhost:5432 127.0.0.1:5432 ● open                           │ │ 10:41:03  ! localhost:3000 (api) failed:… │
+│ web       localhost:8080 127.0.0.1:8080 ● open                           │ ╰────────────────────────────────────────╯
+│           localhost:8443 127.0.0.1:8443 ● open                           │
+╰─────────────────────────────────────────────────────────────────────────╯
 ```
 
 Ports are grouped by container. A port that could not be mirrored is retried with a growing delay
-(1s, 2s, 4s … 60s), and its status counts down to the next attempt. When `docker ps` fails, the Docker status turns
-red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
+(1s, 2s, 4s … 60s), and its status counts down to the next attempt. When there is room, the failure reason appears
+on its own line below the port, marked with ❌ (`x` on ASCII terminals). When `docker ps` fails, the Docker status
+turns red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
 screen.
 
 The dashboard marks reachable Docker and open ports with `●`, or &#x1F7E2; if the console profile reports that
