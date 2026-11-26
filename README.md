@@ -84,12 +84,12 @@ The panels are shown below without the banner.
 │ Context  remote (ssh://me@dockerhost)    SSH  me@dockerhost                                                          │
 │ Bind  127.0.0.1    Poll  2s    Docker  ● reachable    Ctrl+C to stop                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─Mirrored ports (4)──────────────────────────────────────────────────────╮╭─Log───────────────────────────────────────╮
-│ Container Local          Remote         Status                          ││ 10:41:02  + localhost:5432 -> me@dockerh… │
-│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s: bind [127.0.0.1… ││ 10:41:02  + localhost:8080 -> me@dockerh… │
-│ postgres  localhost:5432 127.0.0.1:5432 ● open                          ││ 10:41:02  + localhost:8443 -> me@dockerh… │
-│ web       localhost:8080 127.0.0.1:8080 ● open                          ││ 10:41:03  ! localhost:3000 (api) failed:… │
-│           localhost:8443 127.0.0.1:8443 ● open                          │╰───────────────────────────────────────────╯
+╭─ Mirrored ports (4) ────────────────────────────────────────────────────╮ ╭─ Log ────────────────────────────────────╮
+│ Container Local          Remote         Status                         │ │ 10:41:02  + localhost:5432 -> me@dockerh… │
+│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s: bind [127.0.0.1…  │ │ 10:41:02  + localhost:8080 -> me@dockerh… │
+│ postgres  localhost:5432 127.0.0.1:5432 ● open                           │ │ 10:41:02  + localhost:8443 -> me@dockerh… │
+│ web       localhost:8080 127.0.0.1:8080 ● open                           │ │ 10:41:03  ! localhost:3000 (api) failed:… │
+│           localhost:8443 127.0.0.1:8443 ● open                           │ ╰────────────────────────────────────────╯
 ╰─────────────────────────────────────────────────────────────────────────╯
 ```
 

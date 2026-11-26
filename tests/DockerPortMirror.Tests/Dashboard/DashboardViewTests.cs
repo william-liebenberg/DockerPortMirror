@@ -148,10 +148,13 @@ public sealed class DashboardViewTests
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, []), width: width);
 
         var ports = IndexOf(lines, "Mirrored ports (0)");
+        var gutter = (width - 1) * 5 / 8;
         Assert.Equal(IndexOf(lines, "Docker  ● reachable") + 2, ports);
         Assert.Equal(ports, IndexOf(lines, "Log"));
         Assert.True(lines[ports].IndexOf("Mirrored ports", StringComparison.Ordinal) < lines[ports].IndexOf("Log", StringComparison.Ordinal));
         Assert.Equal(width, lines[ports].Length);
+        Assert.Equal("╮ ╭", lines[ports][(gutter - 1)..(gutter + 2)]);
+        Assert.Equal("│ │", lines[ports + 1][(gutter - 1)..(gutter + 2)]);
         Assert.Contains(lines, line => line.Contains("No messages yet.", StringComparison.Ordinal));
     }
 
@@ -163,6 +166,31 @@ public sealed class DashboardViewTests
         Assert.True(IndexOf(lines, "Mirrored ports (1)") < IndexOf(lines, "localhost:5432"));
         Assert.True(IndexOf(lines, "localhost:5432") < IndexOf(lines, "Log"));
         Assert.True(IndexOf(lines, "Log") < IndexOf(lines, "latest log"));
+    }
+
+    [Theory]
+    [InlineData(35, true, "✗ retry in 60s", "…")]
+    [InlineData(35, false, "x retry in 60s", "...")]
+    [InlineData(20, true, "✗ 60s", "")]
+    [InlineData(20, false, "x 60s", "")]
+    public void Compact_retry_rows_keep_the_container_and_state_before_the_reason(int width, bool unicode, string status, string ellipsis)
+    {
+        const string reason = "Address already in use on the local machine";
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null,
+            [Retrying(65534, "web", reason, 60), Retrying(65535, "web", reason, 60)]), width: width, unicode: unicode);
+
+        var first = IndexOf(lines, "65534");
+        var second = IndexOf(lines, "65535");
+        Assert.True(first >= 0);
+        Assert.Equal(first + 1, second);
+        Assert.Contains($"65534 web {status}", lines[first], StringComparison.Ordinal);
+        Assert.Contains($"65535 {status}", lines[second], StringComparison.Ordinal);
+        Assert.DoesNotContain(reason, lines[first], StringComparison.Ordinal);
+        if (ellipsis.Length > 0)
+        {
+            Assert.Contains(status + ": A", lines[first], StringComparison.Ordinal);
+            Assert.Contains(ellipsis, lines[first], StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -242,11 +270,12 @@ public sealed class DashboardViewTests
 
         Assert.Equal(14, lines.Length);
         Assert.All(lines, line => Assert.True(line.Length <= 80, line));
+        const int gutter = (80 - 1) * 5 / 8;
         var portsRow = lines[IndexOf(lines, "localhost:65535")];
-        Assert.Contains(failed + " retry in 4s", portsRow[..50], StringComparison.Ordinal);
-        Assert.Contains(ellipsis, portsRow[..50], StringComparison.Ordinal);
+        Assert.Contains(failed + " retry in 4s", portsRow[..gutter], StringComparison.Ordinal);
+        Assert.Contains(ellipsis, portsRow[..gutter], StringComparison.Ordinal);
         var logRow = lines[IndexOf(lines, "WARNING: bind")];
-        Assert.Contains(ellipsis, logRow[50..], StringComparison.Ordinal);
+        Assert.Contains(ellipsis, logRow[(gutter + 1)..], StringComparison.Ordinal);
     }
 
     [Fact]

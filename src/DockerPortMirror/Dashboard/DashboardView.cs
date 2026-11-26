@@ -20,6 +20,7 @@ internal static class DashboardView
 
     private const int MinimumWidth = 20;
     private const int SideBySideWidth = 80;
+    private const int PanelGutter = 1;
     private const int PanelWidthOverhead = 4; // Borders and horizontal padding.
     private const int PanelHeightOverhead = 2; // Top and bottom borders.
     private const int MaximumContainerWidth = 24;
@@ -48,14 +49,17 @@ internal static class DashboardView
         if (width >= SideBySideWidth)
         {
             // Give the four-column table more room than the single-column log.
-            var portsWidth = width * 5 / 8;
-            var logWidth = width - portsWidth;
+            var contentWidth = width - PanelGutter;
+            var portsWidth = contentWidth * 5 / 8;
+            var logWidth = contentWidth - portsWidth;
             var bodyHeight = Math.Max(1, available - PanelHeightOverhead);
             var grid = new Grid();
             grid.AddColumn(new GridColumn { Width = portsWidth, Padding = new Padding(0, 0) });
+            grid.AddColumn(new GridColumn { Width = PanelGutter, Padding = new Padding(0, 0) });
             grid.AddColumn(new GridColumn { Width = logWidth, Padding = new Padding(0, 0) });
             grid.AddRow(
                 Ports(snapshot, now, bodyHeight, portsWidth - PanelWidthOverhead, symbols),
+                new Text(" "),
                 Log(log, bodyHeight, logWidth - PanelWidthOverhead, symbols));
             return new Rows(banner, header, grid);
         }
@@ -126,35 +130,41 @@ internal static class DashboardView
             return omitted;
 
         // Sorted by container then port, with unnamed ports last, so the ports of one container read together.
-        var rows = ports
+        var sorted = ports
             .OrderBy(port => port.Container.Length == 0)
             .ThenBy(port => port.Container, StringComparer.OrdinalIgnoreCase)
             .ThenBy(port => port.LocalPort)
-            .Take(visible)
-            .Select(port => new PortRow(
-                port.Container.Length == 0 ? "-" : OneLine(port.Container),
-                compact ? port.LocalPort.ToString(CultureInfo.InvariantCulture) : $"localhost:{port.LocalPort}",
-                OneLine(port.Remote),
-                StatusText(port, now, symbols),
-                port.State == PortState.Open ? "green" : "red"))
-            .ToArray();
+            .Take(visible);
 
         if (compact)
         {
-            var lines = rows.Select((row, i) =>
+            string? previousContainer = null;
+            var lines = new List<IRenderable>();
+            foreach (var port in sorted)
             {
-                var name = i == 0 || !string.Equals(row.Container, rows[i - 1].Container, StringComparison.Ordinal) ? " " + row.Container : "";
-                return Line([new(row.Local + " "), new(row.Status, row.StatusStyle), new(name)], width, symbols);
-            });
-            return new Rows(visible < ports.Count ? lines.Append(omitted) : lines);
+                var name = string.Equals(port.Container, previousContainer, StringComparison.Ordinal) ? "" : ContainerName(port);
+                previousContainer = port.Container;
+                lines.Add(CompactPortLine(port, name, now, width, symbols));
+            }
+
+            if (visible < ports.Count)
+                lines.Add(omitted);
+            return new Rows(lines);
         }
+
+        var rows = sorted.Select(port => new PortRow(
+            ContainerName(port),
+            $"localhost:{port.LocalPort}",
+            OneLine(port.Remote),
+            StatusText(port, now, symbols) + FailureReason(port),
+            StatusStyle(port))).ToArray();
 
         var containerWidth = Math.Min(MaximumContainerWidth, ColumnWidth("Container", rows.Select(row => row.Container)));
         var localWidth = ColumnWidth("Local", rows.Select(row => row.Local));
         var remoteWidth = ColumnWidth("Remote", rows.Select(row => row.Remote));
         var available = width - 3 * ColumnGap;
         // Reserve room for the state and retry countdown before allocating space to long addresses and names.
-        var statusReserve = rows.Any(row => row.StatusStyle == "red") ? 18 : 6;
+        var statusReserve = rows.Any(row => row.StatusStyle == "red") ? 17 : 6;
         var excess = Math.Max(0, containerWidth + localWidth + remoteWidth + statusReserve - available);
         ReduceWidth(ref containerWidth, 5, ref excess);
         ReduceWidth(ref remoteWidth, 5, ref excess);
@@ -183,6 +193,32 @@ internal static class DashboardView
         return visible < ports.Count ? new Rows(table, omitted) : table;
     }
 
+    private static Markup CompactPortLine(PortStatus port, string name, DateTimeOffset now, int width, Symbols symbols)
+    {
+        var local = port.LocalPort.ToString(CultureInfo.InvariantCulture) + " ";
+        var available = width - local.Length;
+        // Reserve a short name prefix and use a shorter countdown if the full label would crowd it out.
+        var nameReserve = name.Length == 0 ? 0 : 1 + Math.Min(4, CellWidth(name));
+        var status = StatusText(port, now, symbols, available - nameReserve);
+        var remaining = available - CellWidth(status);
+        if (name.Length > 0)
+        {
+            Shorten(ref name, Math.Max(0, remaining - 1), symbols);
+            if (name.Length > 0)
+                name += " ";
+        }
+
+        var reason = FailureReason(port);
+        if (remaining - CellWidth(name) <= 2)
+            reason = "";
+
+        return Line([new(local), new(name), new(status + reason, StatusStyle(port))], width, symbols);
+    }
+
+    private static string ContainerName(PortStatus port) => port.Container.Length == 0 ? "-" : OneLine(port.Container);
+
+    private static string StatusStyle(PortStatus port) => port.State == PortState.Open ? "green" : "red";
+
     private static int ColumnWidth(string header, IEnumerable<string> values) => Math.Max(header.Length, values.Max(CellWidth));
 
     private static void ReduceWidth(ref int width, int minimum, ref int excess)
@@ -195,20 +231,25 @@ internal static class DashboardView
     private static TableColumn Column(string header, int width, int rightPadding, Symbols symbols) =>
         new(Line([Label(header)], width, symbols)) { Padding = new Padding(0, 0, rightPadding, 0), NoWrap = true };
 
-    private static string StatusText(PortStatus port, DateTimeOffset now, Symbols symbols)
+    private static string StatusText(PortStatus port, DateTimeOffset now, Symbols symbols, int width = int.MaxValue)
     {
         if (port.State == PortState.Open)
             return $"{symbols.Ok} open";
 
-        var retry = port.RetryAt is { } retryAt
-            ? Math.Max(0, (int)Math.Ceiling((retryAt - now).TotalSeconds)) is var seconds and > 0
-                ? $"retry in {seconds.ToString(CultureInfo.InvariantCulture)}s"
-                : "retrying"
-            : "starting";
-        return port.Reason is { Length: > 0 } reason
-            ? $"{symbols.Failed} {retry}: {OneLine(reason.Trim())}"
-            : $"{symbols.Failed} {retry}";
+        if (port.RetryAt is not { } retryAt)
+            return $"{symbols.Failed} starting";
+
+        var seconds = Math.Max(0, (int)Math.Ceiling((retryAt - now).TotalSeconds));
+        if (seconds == 0)
+            return $"{symbols.Failed} retrying";
+
+        var countdown = seconds.ToString(CultureInfo.InvariantCulture) + "s";
+        var status = $"{symbols.Failed} retry in {countdown}";
+        return CellWidth(status) <= width ? status : $"{symbols.Failed} {countdown}";
     }
+
+    private static string FailureReason(PortStatus port) =>
+        port.State != PortState.Open && port.Reason is { Length: > 0 } reason ? ": " + OneLine(reason.Trim()) : "";
 
     private static Panel Log(IReadOnlyList<LogLine> log, int height, int width, Symbols symbols)
     {
