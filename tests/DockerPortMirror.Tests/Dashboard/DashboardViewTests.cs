@@ -56,7 +56,6 @@ public sealed class DashboardViewTests
     {
         using var console = new TestConsole().Width(120).Colors(ColorSystem.Standard).EmitAnsiSequences();
         console.Write(DashboardView.Render(new MirrorOptions(), MirrorSnapshot.Empty, [], Now, console.Profile));
-
         var headerIndex = Array.FindIndex(console.Lines.ToArray(), line => line.Contains(AppInfo.Name, StringComparison.Ordinal));
         Assert.True(headerIndex > 0);
         var banner = string.Join('\n', console.Lines.Take(headerIndex));
@@ -75,7 +74,6 @@ public sealed class DashboardViewTests
         using var expected = new TestConsole().Width(120);
         expected.Write(new FigletText(AppInfo.Name));
         var clipped = expected.Lines.Select(line => line[..Math.Min(line.Length, width)].TrimEnd()).ToArray();
-
         Assert.Equal(clipped, lines[..clipped.Length]);
     }
 
@@ -83,7 +81,6 @@ public sealed class DashboardViewTests
     public void Header_shows_the_connection()
     {
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, []));
-
         Assert.Contains(lines, line => line.Contains("Context  remote (ssh://me@dockerhost)", StringComparison.Ordinal) && line.Contains("SSH  me@dockerhost", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("Bind  127.0.0.1", StringComparison.Ordinal) && line.Contains("● reachable", StringComparison.Ordinal) && line.Contains("Ctrl+C to stop", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("Mirrored ports (0)", StringComparison.Ordinal));
@@ -94,7 +91,6 @@ public sealed class DashboardViewTests
     public void Before_the_first_poll_the_header_says_so()
     {
         var lines = Render(MirrorSnapshot.Empty);
-
         Assert.Contains(lines, line => line.Contains("Context  resolving…", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("Docker  connecting…", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("Waiting for Docker…", StringComparison.Ordinal));
@@ -193,6 +189,27 @@ public sealed class DashboardViewTests
         }
     }
 
+    [Theory]
+    [InlineData(true, true, "wor… start", "✗ starting")]
+    [InlineData(true, false, "w... start", "x starting")]
+    [InlineData(false, true, "wor… retry", "✗ retrying")]
+    [InlineData(false, false, "w... retry", "x retrying")]
+    public void Compact_starting_and_due_retry_rows_keep_the_container_prefix(bool starting, bool unicode, string firstRow, string secondStatus)
+    {
+        var port = Retrying(65534, "worker", "Address already in use", 0);
+        if (starting)
+            port = port with { RetryAt = null, Reason = null };
+
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [port, port with { LocalPort = 65535 }]), width: 20, unicode: unicode);
+
+        var first = IndexOf(lines, "65534");
+        var second = IndexOf(lines, "65535");
+        Assert.True(first >= 0);
+        Assert.Equal(first + 1, second);
+        Assert.Contains($"65534 {firstRow}", lines[first], StringComparison.Ordinal);
+        Assert.Contains($"65535 {secondStatus}", lines[second], StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Log_keeps_the_newest_lines_that_fit()
     {
@@ -224,15 +241,16 @@ public sealed class DashboardViewTests
     private static IEnumerable<string> Messages(string[] lines) =>
         lines.SelectMany(line => Regex.Matches(line, @"message \d+").Select(match => match.Value));
 
-    [Fact]
-    public void Small_terminal_keeps_a_few_log_lines()
+    [Theory]
+    [InlineData(79)]
+    [InlineData(90)]
+    public void Short_terminal_keeps_the_newest_log_lines_in_the_rendered_frame(int width)
     {
         var log = Enumerable.Range(0, 10).Select(i => Line($"message {i}")).ToArray();
 
-        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, width: 79, height: 8);
+        var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres")]), log, width: width, height: 8);
 
-        Assert.Equal(DashboardView.MinimumLogLines, lines.Count(line => line.Contains("message", StringComparison.Ordinal)));
-        Assert.Contains(lines, line => line.Contains("message 9", StringComparison.Ordinal));
+        Assert.Equal(Enumerable.Range(log.Length - DashboardView.MinimumLogLines, DashboardView.MinimumLogLines).Select(i => $"message {i}"), Messages(lines));
     }
 
     [Fact]
@@ -281,7 +299,7 @@ public sealed class DashboardViewTests
     [Fact]
     public void Wide_unicode_text_fits_in_its_panel_without_wrapping()
     {
-        var text = string.Concat(Enumerable.Repeat("港🚢", 40));
+        var text = string.Concat(Enumerable.Repeat("港\uD83D\uDEA2", 40));
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, text)]), [Line(text)], width: 80);
 
         Assert.Equal(14, lines.Length);

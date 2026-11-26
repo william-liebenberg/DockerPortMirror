@@ -15,7 +15,7 @@ namespace DockerPortMirror.Dashboard;
 /// </summary>
 internal static class DashboardView
 {
-    /// <summary>The stacked view keeps at least this many log lines, even if the live frame is cropped.</summary>
+    /// <summary>The rendered view keeps at least this many log lines when available, even if the live frame is cropped.</summary>
     public const int MinimumLogLines = 3;
 
     private const int MinimumWidth = 20;
@@ -60,7 +60,7 @@ internal static class DashboardView
             grid.AddRow(
                 Ports(snapshot, now, bodyHeight, portsWidth - PanelWidthOverhead, symbols),
                 new Text(" "),
-                Log(log, bodyHeight, logWidth - PanelWidthOverhead, symbols));
+                Log(log, Math.Max(MinimumLogLines, bodyHeight), logWidth - PanelWidthOverhead, symbols));
             return new Rows(banner, header, grid);
         }
 
@@ -197,7 +197,7 @@ internal static class DashboardView
     {
         var local = port.LocalPort.ToString(CultureInfo.InvariantCulture) + " ";
         var available = width - local.Length;
-        // Reserve a short name prefix and use a shorter countdown if the full label would crowd it out.
+        // Reserve a short name prefix and use a shorter state or countdown if the full label would crowd it out.
         var nameReserve = name.Length == 0 ? 0 : 1 + Math.Min(4, CellWidth(name));
         var status = StatusText(port, now, symbols, available - nameReserve);
         var remaining = available - CellWidth(status);
@@ -237,15 +237,16 @@ internal static class DashboardView
             return $"{symbols.Ok} open";
 
         if (port.RetryAt is not { } retryAt)
-            return $"{symbols.Failed} starting";
+            return FitStatus($"{symbols.Failed} starting", "start");
 
         var seconds = Math.Max(0, (int)Math.Ceiling((retryAt - now).TotalSeconds));
         if (seconds == 0)
-            return $"{symbols.Failed} retrying";
+            return FitStatus($"{symbols.Failed} retrying", "retry");
 
         var countdown = seconds.ToString(CultureInfo.InvariantCulture) + "s";
-        var status = $"{symbols.Failed} retry in {countdown}";
-        return CellWidth(status) <= width ? status : $"{symbols.Failed} {countdown}";
+        return FitStatus($"{symbols.Failed} retry in {countdown}", $"{symbols.Failed} {countdown}");
+
+        string FitStatus(string full, string compact) => CellWidth(full) <= width ? full : compact;
     }
 
     private static string FailureReason(PortStatus port) =>
