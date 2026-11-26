@@ -28,7 +28,7 @@ internal static class DashboardView
     private const string Gap = "    ";
 
     private static readonly Symbols UnicodeSymbols = new("●", "✗", "❌", "…");
-    private static readonly Symbols AsciiSymbols = new("*", "x", "x", "...");
+    private static readonly Symbols FallbackSymbols = new("🟢", "x", "x", "...");
 
     public static IRenderable Render(MirrorOptions options, MirrorSnapshot snapshot, IReadOnlyList<LogLine> log, DateTimeOffset now, Profile profile)
     {
@@ -37,7 +37,7 @@ internal static class DashboardView
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(profile);
 
-        var symbols = profile.Capabilities.Unicode ? UnicodeSymbols : AsciiSymbols;
+        var symbols = profile.Capabilities.Unicode ? UnicodeSymbols : FallbackSymbols;
         var width = Math.Max(profile.Width, MinimumWidth);
         var inner = width - PanelWidthOverhead;
         var banner = new RainbowBanner();
@@ -207,7 +207,8 @@ internal static class DashboardView
         var remaining = available - CellWidth(status);
         if (name.Length > 0)
         {
-            Shorten(ref name, Math.Max(0, remaining - 1), symbols);
+            var nameWidth = CellWidth(name);
+            Shorten(ref name, ref nameWidth, Math.Max(0, remaining - 1), symbols);
             if (name.Length > 0)
                 name += " ";
         }
@@ -230,7 +231,8 @@ internal static class DashboardView
 
     private static string PaddedColumn(string text, int width, Symbols symbols)
     {
-        Shorten(ref text, width, symbols);
+        var textWidth = CellWidth(text);
+        Shorten(ref text, ref textWidth, width, symbols);
         return text + new string(' ', width - CellWidth(text) + ColumnGap);
     }
 
@@ -306,15 +308,16 @@ internal static class DashboardView
     private static Markup Line(IReadOnlyList<Part> parts, int width, Symbols symbols)
     {
         var texts = parts.Select(part => OneLine(part.Text)).ToArray();
-        var overflow = texts.Sum(CellWidth) - width;
+        var widths = texts.Select(CellWidth).ToArray();
+        var overflow = widths.Sum() - width;
         for (var i = 0; i < texts.Length && overflow > 0; i++)
         {
             if (parts[i].Flexible)
-                overflow -= Shorten(ref texts[i], Math.Max(1 + symbols.Ellipsis.Length, CellWidth(texts[i]) - overflow), symbols);
+                overflow -= Shorten(ref texts[i], ref widths[i], Math.Max(1 + CellWidth(symbols.Ellipsis), widths[i] - overflow), symbols);
         }
 
         for (var i = texts.Length - 1; i >= 0 && overflow > 0; i--)
-            overflow -= Shorten(ref texts[i], Math.Max(0, CellWidth(texts[i]) - overflow), symbols);
+            overflow -= Shorten(ref texts[i], ref widths[i], Math.Max(0, widths[i] - overflow), symbols);
 
         var markup = new StringBuilder();
         for (var i = 0; i < texts.Length; i++)
@@ -330,15 +333,15 @@ internal static class DashboardView
 
     private static int CellWidth(string text) => new Segment(text).CellCount();
 
-    /// <summary>Cuts text at a text element boundary to fit the cell budget, and returns the cells removed.</summary>
-    private static int Shorten(ref string text, int width, Symbols symbols)
+    /// <summary>Clips to the cell limit at a grapheme boundary and returns the number of cells removed.</summary>
+    private static int Shorten(ref string text, ref int width, int limit, Symbols symbols)
     {
-        var before = CellWidth(text);
-        if (before <= width)
+        if (width <= limit)
             return 0;
 
-        var ellipsis = width > symbols.Ellipsis.Length ? symbols.Ellipsis : "";
-        var remaining = width - ellipsis.Length;
+        var ellipsisWidth = CellWidth(symbols.Ellipsis);
+        var suffix = limit > ellipsisWidth ? symbols.Ellipsis : "";
+        var remaining = limit - (suffix.Length == 0 ? 0 : ellipsisWidth);
         var end = 0;
         while (end < text.Length && remaining > 0)
         {
@@ -350,8 +353,10 @@ internal static class DashboardView
             remaining -= cells;
         }
 
-        text = text[..end] + ellipsis;
-        return before - width + remaining;
+        var before = width;
+        text = text[..end] + suffix;
+        width = CellWidth(text);
+        return before - width;
     }
 
     /// <summary>The text on one line: line breaks, tabs and other control characters become spaces.</summary>

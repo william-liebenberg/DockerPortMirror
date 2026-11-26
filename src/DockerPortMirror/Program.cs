@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Spectre.Console;
 
 // Composition root: parse the command line, then run the mirror in the Generic Host.
+ConsoleOutput.Initialize();
 return await MirrorCommand.Create(RunAsync).Parse(args).InvokeAsync(MirrorCommand.InvocationConfiguration);
 
 static async Task<int> RunAsync(MirrorCommandLine commandLine, CancellationToken cancellationToken)

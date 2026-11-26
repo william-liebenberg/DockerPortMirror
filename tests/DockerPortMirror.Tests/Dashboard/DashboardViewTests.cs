@@ -303,22 +303,54 @@ public sealed class DashboardViewTests
     }
 
     [Fact]
-    public void Log_lines_follow_the_console_colours_and_prefixes()
+    public void Log_lines_preserve_symbols_and_follow_the_console_prefixes()
     {
         var time = Now.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var lines = Render(
             new MirrorSnapshot(Endpoint, true, null, []),
             [
-                Line(" + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres)", eventId: Log.TunnelOpenedId),
-                Line("Unable to query Docker context 'remote'.", LogLevel.Warning, 200),
+                Line(" ➕ localhost:5432 ➡️ mac+alias ➡️ 127.0.0.1:5432 (db-*)", eventId: Log.TunnelOpenedId),
+                Line(" ➖ localhost:5432 (db-*)", eventId: Log.TunnelClosedId),
+                Line("Docker diagnostic: * -> + -", LogLevel.Warning, 200),
                 Line("broken", LogLevel.Error, 300),
                 new LogLine(Now, LogLevel.Error, 300, "   at Somewhere()", IsContinuation: true),
             ], width: 220);
 
-        Assert.Contains(lines, line => line.Contains($"│ {time}  + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres) ", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains($"│ {time}  WARNING: Unable to query Docker context 'remote'. ", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains($"│ {time}  ERROR: broken ", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  ➕ localhost:5432", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  ➖ localhost:5432", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  WARNING: Docker diagnostic:", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains($"│ {time}  ERROR: broken", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("│ " + new string(' ', 10) + "   at Somewhere()", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Tunnel_log_colours_follow_event_ids()
+    {
+        using var console = new TestConsole().Width(90).Height(30).Colors(ColorSystem.Standard).EmitAnsiSequences();
+        LogLine[] log =
+        [
+            Line(" ➕ opened", eventId: Log.TunnelOpenedId),
+            Line(" ➖ closed", eventId: Log.TunnelClosedId),
+            Line(" ! failed", LogLevel.Warning, Log.TunnelFailedId),
+        ];
+        console.Write(DashboardView.Render(new MirrorOptions(), MirrorSnapshot.Empty, log, Now, console.Profile));
+
+        Assert.Matches(@"\x1b\[(32|92)m➕ opened", console.Output);
+        Assert.Matches(@"\x1b\[(33|93)m➖ closed", console.Output);
+        Assert.Matches(@"\x1b\[(31|91)m! failed", console.Output);
+    }
+
+    [Theory]
+    [InlineData(21, "➕ a …")]
+    [InlineData(22, "➕ a ➡️…")]
+    public void Narrow_log_clips_whole_emoji_without_wrapping(int width, string expected)
+    {
+        var lines = Render(MirrorSnapshot.Empty, [Line(" ➕ a ➡️ tail", eventId: Log.TunnelOpenedId)], width: width);
+        var row = Assert.Single(lines, line => line.Contains('➕'));
+
+        Assert.Contains(expected, row, StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, line => line.Contains("tail", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.True(new Segment(line).CellCount() <= width, line));
     }
 
     [Theory]
@@ -360,12 +392,20 @@ public sealed class DashboardViewTests
     }
 
     [Fact]
-    public void Ascii_terminal_gets_ascii_symbols()
+    public void Non_unicode_profile_uses_green_circle_for_healthy_status()
     {
         var lines = Render(new MirrorSnapshot(Endpoint, true, null, [Open(5432, "postgres"), Retrying(3000, "api", "in use", 2)]), unicode: false);
 
-        Assert.Contains(lines, line => line.Contains("* open", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("🟢 open", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.Contains("x retry in 2s", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("* reachable", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("x in use", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("🟢 reachable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Non_unicode_profile_keeps_ascii_ellipsis()
+    {
+        var lines = Render(MirrorSnapshot.Empty, unicode: false);
+        Assert.Contains(lines, line => line.Contains("Docker  connecting...", StringComparison.Ordinal));
     }
 }

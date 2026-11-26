@@ -85,9 +85,9 @@ The panels are shown below without the banner.
 │ Bind  127.0.0.1    Poll  2s    Docker  ● reachable    Ctrl+C to stop                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Mirrored ports (4) ────────────────────────────────────────────────────╮ ╭─ Log ────────────────────────────────────╮
-│ Container Local          Remote         Status                         │ │ 10:41:02  + localhost:5432 -> me@dockerh… │
-│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s                    │ │ 10:41:02  + localhost:8080 -> me@dockerh… │
-│ ❌ Address already in use (bind [127.0.0.1]:3000)                        │ │ 10:41:02  + localhost:8443 -> me@dockerh… │
+│ Container Local          Remote         Status                         │ │ 10:41:02  ➕ localhost:5432 ➡️ me@dockerh… │
+│ api       localhost:3000 127.0.0.1:3000 ✗ retry in 4s                    │ │ 10:41:02  ➕ localhost:8080 ➡️ me@dockerh… │
+│ ❌ Address already in use (bind [127.0.0.1]:3000)                        │ │ 10:41:02  ➕ localhost:8443 ➡️ me@dockerh… │
 │ postgres  localhost:5432 127.0.0.1:5432 ● open                           │ │ 10:41:03  ! localhost:3000 (api) failed:… │
 │ web       localhost:8080 127.0.0.1:8080 ● open                           │ ╰────────────────────────────────────────╯
 │           localhost:8443 127.0.0.1:8443 ● open                           │
@@ -100,6 +100,9 @@ on its own line below the port, marked with ❌ (`x` on ASCII terminals). When `
 turns red and the open tunnels stay as they are. Press Ctrl+C to stop: every tunnel is closed and the last frame stays on
 screen.
 
+The dashboard marks reachable Docker and open ports with `●`, or &#x1F7E2; if the console profile reports that
+Unicode is unavailable.
+
 When the output is redirected, or with `--no-dashboard`, it prints one line per event instead:
 
 ```text
@@ -108,14 +111,14 @@ Docker context : remote  (ssh://me@dockerhost)
 SSH target     : me@dockerhost
 Local bind     : 127.0.0.1   Poll: 2s
 Press Ctrl+C to stop.
- + localhost:5432 -> me@dockerhost -> 127.0.0.1:5432 (postgres)
- + localhost:8080 -> me@dockerhost -> 127.0.0.1:8080 (web)
- - localhost:8080 (web)
+ ➕ localhost:5432 ➡️ me@dockerhost ➡️ 127.0.0.1:5432 (postgres)
+ ➕ localhost:8080 ➡️ me@dockerhost ➡️ 127.0.0.1:8080 (web)
+ ➖ localhost:8080 (web)
  ! localhost:3000 (api) failed: bind [127.0.0.1]:3000: Address already in use (retry in 1s)
 ```
 
-`+` is a new tunnel, `-` a tunnel removed because its container stopped, and `!` a port that could not be mirrored;
-it is reported again only if the reason changes.
+`➕` marks a new tunnel, with `➡️` separating the local address, SSH target, and remote address. `➖` marks a closed
+tunnel. `!` marks a port that could not be mirrored; it is reported again only if the reason changes.
 
 > [!NOTE]
 > The console output is meant for people and may change between versions; do not parse it in scripts.

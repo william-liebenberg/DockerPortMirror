@@ -37,7 +37,7 @@ public sealed class DashboardServiceTests
             await WaitUntilAsync(() =>
             {
                 var frame = LastFrame(console.Output, firstBannerRow);
-                return frame.Contains("● open", StringComparison.Ordinal) && frame.Contains("+ localhost:5432", StringComparison.Ordinal);
+                return frame.Contains("● open", StringComparison.Ordinal) && frame.Contains("➕ localhost:5432", StringComparison.Ordinal);
             }, token);
             Assert.Matches(@"Mirrored ports \(1\)[^\r\n]+Log", LastFrame(console.Output, firstBannerRow));
             await reconciler.ReconcileAsync(new HashSet<PublishedPort>(), token);
@@ -51,7 +51,8 @@ public sealed class DashboardServiceTests
         Assert.StartsWith(firstBannerRow, finalFrame, StringComparison.Ordinal);
         Assert.Matches(@"Mirrored ports \(0\)[^\r\n]+Log", finalFrame);
         Assert.DoesNotContain("● open", finalFrame, StringComparison.Ordinal);
-        Assert.Contains(" - localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
+        Assert.Contains(" ➕ localhost:5432", finalFrame, StringComparison.Ordinal);
+        Assert.Contains(" ➖ localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
         Assert.Contains("Stopping tunnels...", finalFrame, StringComparison.Ordinal);
     }
 

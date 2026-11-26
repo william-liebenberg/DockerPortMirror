@@ -53,10 +53,10 @@ internal static partial class Log
         TunnelStillFailingCore(logger, localPort, owner, failures, reason, retrySeconds);
     }
 
-    [LoggerMessage(EventId = TunnelOpenedId, Level = LogLevel.Information, Message = " + localhost:{LocalPort} -> {Via} -> {RemoteHost}:{RemotePort}{Owner}")]
+    [LoggerMessage(EventId = TunnelOpenedId, Level = LogLevel.Information, Message = " ➕ localhost:{LocalPort} ➡️ {Via} ➡️ {RemoteHost}:{RemotePort}{Owner}")]
     private static partial void TunnelOpenedCore(ILogger logger, int localPort, string via, string remoteHost, int remotePort, string owner);
 
-    [LoggerMessage(EventId = TunnelClosedId, Level = LogLevel.Information, Message = " - localhost:{LocalPort}{Owner}")]
+    [LoggerMessage(EventId = TunnelClosedId, Level = LogLevel.Information, Message = " ➖ localhost:{LocalPort}{Owner}")]
     private static partial void TunnelClosedCore(ILogger logger, int localPort, string owner);
 
     [LoggerMessage(EventId = TunnelFailedId, Level = LogLevel.Warning, Message = " ! localhost:{LocalPort}{Owner} failed: {Reason} (retry in {RetrySeconds}s)")]
