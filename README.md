@@ -71,8 +71,11 @@ docker context use remote
 dockerportmirror
 ```
 
-In a terminal it shows a live dashboard: the connection, every mirrored port with its container and status, and
-the latest messages.
+In a terminal it shows a live dashboard topped by a rainbow DockerPortMirror figlet (monochrome on terminals
+without color). Below the banner are panels for the connection, mirrored ports and their status, and recent log
+messages. Short terminals can cut off the bottom of the dashboard, hiding port rows or log messages. Make the
+terminal taller to see more, or run `dockerportmirror --no-dashboard` to print one line per event instead.
+The panels are shown below without the banner.
 
 ```text
 ╭─DockerPortMirror 1.2.0───────────────────────────────────────────────────────────────────╮
