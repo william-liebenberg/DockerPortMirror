@@ -10,16 +10,8 @@ using Microsoft.Extensions.Options;
 using Spectre.Console;
 
 // Composition root: parse the command line, then run the mirror in the Generic Host.
-var originalEncoding = ConsoleOutput.UseUtf8();
-try
-{
-    return await MirrorCommand.Create(RunAsync).Parse(args).InvokeAsync(MirrorCommand.InvocationConfiguration);
-}
-finally
-{
-    // On Windows the output code page is shared with the shell that launched us.
-    Console.OutputEncoding = originalEncoding;
-}
+ConsoleOutput.Initialize();
+return await MirrorCommand.Create(RunAsync).Parse(args).InvokeAsync(MirrorCommand.InvocationConfiguration);
 
 static async Task<int> RunAsync(MirrorCommandLine commandLine, CancellationToken cancellationToken)
 {

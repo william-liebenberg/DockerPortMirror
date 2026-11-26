@@ -56,7 +56,6 @@ internal sealed class OpenSshTunnel : ITunnel
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardErrorEncoding = ConsoleOutput.OriginalEncoding,
         };
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
