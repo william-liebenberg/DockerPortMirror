@@ -10,8 +10,8 @@ using Spectre.Console.Rendering;
 namespace DockerPortMirror.Dashboard;
 
 /// <summary>
-/// Draws the banner and connection details above the mirrored ports and recent logs. The content panels share
-/// the available height on wide terminals and stack on narrow ones.
+/// Draws the banner and connection details above full-width panels for mirrored ports and recent logs,
+/// stacked in that order.
 /// </summary>
 internal static class DashboardView
 {
@@ -19,8 +19,6 @@ internal static class DashboardView
     public const int MinimumLogLines = 3;
 
     private const int MinimumWidth = 20;
-    private const int SideBySideWidth = 80;
-    private const int PanelGutter = 1;
     private const int PanelWidthOverhead = 4; // Borders and horizontal padding.
     private const int PanelHeightOverhead = 2; // Top and bottom borders.
     private const int MaximumContainerWidth = 24;
@@ -46,24 +44,6 @@ internal static class DashboardView
         // One line stays free when possible, so the live region never scrolls the terminal.
         var renderOptions = new RenderOptions(profile.Capabilities, new Size(width, profile.Height));
         var available = profile.Height - 1 - HeightOf(banner, renderOptions, width) - HeightOf(header, renderOptions, width);
-        if (width >= SideBySideWidth)
-        {
-            // Give the four-column table more room than the single-column log.
-            var contentWidth = width - PanelGutter;
-            var portsWidth = contentWidth * 5 / 8;
-            var logWidth = contentWidth - portsWidth;
-            var bodyHeight = Math.Max(1, available - PanelHeightOverhead);
-            var grid = new Grid();
-            grid.AddColumn(new GridColumn { Width = portsWidth, Padding = new Padding(0, 0) });
-            grid.AddColumn(new GridColumn { Width = PanelGutter, Padding = new Padding(0, 0) });
-            grid.AddColumn(new GridColumn { Width = logWidth, Padding = new Padding(0, 0) });
-            grid.AddRow(
-                Ports(snapshot, now, bodyHeight, portsWidth - PanelWidthOverhead, symbols),
-                new Text(" "),
-                Log(log, Math.Max(MinimumLogLines, bodyHeight), logWidth - PanelWidthOverhead, symbols));
-            return new Rows(banner, header, grid);
-        }
-
         var reservedLogLines = Math.Clamp(log.Count, 1, MinimumLogLines);
         var portsLines = Math.Max(1, available - 2 * PanelHeightOverhead - reservedLogLines);
         var ports = Ports(snapshot, now, portsLines, inner, symbols);

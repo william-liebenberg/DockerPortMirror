@@ -39,7 +39,7 @@ public sealed class DashboardServiceTests
                 var frame = LastFrame(console.Output, firstBannerRow);
                 return frame.Contains("● open", StringComparison.Ordinal) && frame.Contains("➕ localhost:5432", StringComparison.Ordinal);
             }, token);
-            Assert.Matches(@"Mirrored ports \(1\)[^\r\n]+Log", LastFrame(console.Output, firstBannerRow));
+            AssertStackedPanels(LastFrame(console.Output, firstBannerRow), portCount: 1);
             await reconciler.ReconcileAsync(new HashSet<PublishedPort>(), token);
         }
 
@@ -49,7 +49,7 @@ public sealed class DashboardServiceTests
 
         var finalFrame = LastFrame(console.Output, firstBannerRow);
         Assert.StartsWith(firstBannerRow, finalFrame, StringComparison.Ordinal);
-        Assert.Matches(@"Mirrored ports \(0\)[^\r\n]+Log", finalFrame);
+        AssertStackedPanels(finalFrame, portCount: 0);
         Assert.DoesNotContain("● open", finalFrame, StringComparison.Ordinal);
         Assert.Contains(" ➕ localhost:5432", finalFrame, StringComparison.Ordinal);
         Assert.Contains(" ➖ localhost:5432 (postgres)", finalFrame, StringComparison.Ordinal);
@@ -75,6 +75,16 @@ public sealed class DashboardServiceTests
         var liveOutput = console.Output;
         await service.StopAsync(token);
         Assert.DoesNotContain("This log is below the fold.", liveOutput, StringComparison.Ordinal);
+    }
+
+    private static void AssertStackedPanels(string frame, int portCount)
+    {
+        var lines = frame.Split('\n');
+        var connection = Array.FindIndex(lines, line => line.Contains(AppInfo.Name, StringComparison.Ordinal));
+        var ports = Array.FindIndex(lines, line => line.Contains($"╭─Mirrored ports ({portCount})─", StringComparison.Ordinal));
+        var log = Array.FindIndex(lines, line => line.Contains("╭─Log─", StringComparison.Ordinal));
+        Assert.True(connection >= 0, frame);
+        Assert.True(connection < ports && ports < log, frame);
     }
 
     private static string LastFrame(string output, string firstBannerRow)
